@@ -24,10 +24,11 @@ MONTHS = {
     "DEC": 12,
 }
 
-TABLE_RE = re.compile(
+TABLE_OFFENCE_RE = re.compile(
     r"^Table\s+\d+:\s*(.+?)\s*-\s*Offences and other activities\s*$",
     re.I,
 )
+TABLE_ANY_RE = re.compile(r"^Table\s+(\d+):\s*(.+)\s*$", re.I)
 
 
 def parse_period_label(label: str) -> tuple[int, int] | None:
@@ -49,9 +50,21 @@ def period_sort_key(label: str) -> tuple[int, int]:
     return p if p else (0, 0)
 
 
-def district_from_table_title(title: str) -> str | None:
-    m = TABLE_RE.match(title.strip())
+def district_from_offence_title(title: str) -> str | None:
+    m = TABLE_OFFENCE_RE.match(title.strip())
     return m.group(1).strip() if m else None
+
+
+def _is_offence_header_row(r: tuple) -> bool:
+    a = r[0] if r else None
+    b = r[1] if r and len(r) > 1 else None
+    if a in ("Offence", "Offences") and b == "Date reported":
+        return True
+    if isinstance(a, str) and a.strip() == "Date reported":
+        return True
+    if (a is None or (isinstance(a, str) and not str(a).strip())) and b == "Date reported":
+        return True
+    return False
 
 
 def extract_offence_tables(ws) -> list[dict]:
@@ -65,7 +78,7 @@ def extract_offence_tables(ws) -> list[dict]:
         c0 = row[0] if row else None
         if isinstance(c0, str) and c0.startswith("Table ") and "Offences and other activities" in c0:
             title = c0
-            district = district_from_table_title(title)
+            district = district_from_offence_title(title)
             if not district:
                 i += 1
                 continue
@@ -77,9 +90,11 @@ def extract_offence_tables(ws) -> list[dict]:
                 first = r[0] if r else None
                 if isinstance(first, str) and first.startswith("Table ") and j > i + 3:
                     break
-                if first == "Offence" and r[1] == "Date reported":
+                if _is_offence_header_row(r):
                     header = rows[j + 1] if j + 1 < n else None
-                    if header and header[0] is None:
+                    if header is not None and (
+                        header[0] is None or str(header[0]).strip() == ""
+                    ):
                         periods = []
                         for cell in header[1:]:
                             if cell is None:
@@ -87,7 +102,13 @@ def extract_offence_tables(ws) -> list[dict]:
                             periods.append(str(cell).strip())
                     j += 2
                     continue
-                if periods and first and isinstance(first, str) and first != "Offence":
+                if (
+                    periods
+                    and first
+                    and isinstance(first, str)
+                    and first not in ("Offence", "Offences")
+                    and not (isinstance(first, str) and first.strip() == "Date reported")
+                ):
                     name = first.strip()
                     data: dict[str, int] = {}
                     for k, p in enumerate(periods):
@@ -104,6 +125,7 @@ def extract_offence_tables(ws) -> list[dict]:
                 tables.append(
                     {
                         "district": district,
+                        "title": title,
                         "periods": periods,
                         "series": series,
                     }
@@ -114,9 +136,14 @@ def extract_offence_tables(ws) -> list[dict]:
     return tables
 
 
-def extract_simple_table(ws, header_row_idx: int) -> tuple[list[str], dict[str, dict[str, int]]]:
-    """header_row_idx is 0-based index of row with first cell empty/space and periods from col B."""
+def extract_simple_table(ws, header_row_idx: int) -> tuple[str | None, list[str], dict[str, dict[str, int]]]:
+    """Returns (table_title from col A if present), periods, series."""
     rows = list(ws.iter_rows(values_only=True))
+    title: str | None = None
+    if header_row_idx > 0:
+        t0 = rows[0][0] if rows[0] else None
+        if isinstance(t0, str) and t0.strip().startswith("Table "):
+            title = t0.strip()
     header = rows[header_row_idx]
     periods: list[str] = []
     for cell in header[1:]:
@@ -139,7 +166,25 @@ def extract_simple_table(ws, header_row_idx: int) -> tuple[list[str], dict[str, 
             except (TypeError, ValueError):
                 data[p] = 0
         series[label] = data
-    return periods, series
+    return title, periods, series
+
+
+def merge_periods(*period_lists: list[str]) -> list[str]:
+    seen: set[str] = set()
+    out: list[str] = []
+    for lst in period_lists:
+        for p in lst:
+            if p not in seen:
+                seen.add(p)
+                out.append(p)
+    return sorted(out, key=period_sort_key)
+
+
+def table_number_from_title(title: str | None) -> int | None:
+    if not title:
+        return None
+    m = TABLE_ANY_RE.match(title.strip())
+    return int(m.group(1)) if m else None
 
 
 def main() -> None:
@@ -158,23 +203,82 @@ def main() -> None:
         print("No offence tables parsed", file=sys.stderr)
         sys.exit(1)
 
-    all_periods = sorted(
-        {p for t in tables for p in t["periods"]},
-        key=period_sort_key,
-    )
-
     traffic_ws = wb["Traffic Statistics - ACT"]
-    traffic_periods, traffic_series = extract_simple_table(traffic_ws, 4)
+    traffic_title, traffic_periods, traffic_series = extract_simple_table(traffic_ws, 4)
 
     fv_ws = wb["Family Violence Statistics - AC"]
-    fv_periods, fv_series = extract_simple_table(fv_ws, 3)
+    fv_title, fv_periods, fv_series = extract_simple_table(fv_ws, 3)
+
+    all_periods = merge_periods(
+        *[t["periods"] for t in tables],
+        traffic_periods,
+        fv_periods,
+    )
+
+    sheets_meta = [
+        {"sheetId": "offence", "sheetName": offence_ws.title, "tableCount": len(tables)},
+        {"sheetId": "traffic", "sheetName": traffic_ws.title, "tableCount": 1},
+        {"sheetId": "familyViolence", "sheetName": fv_ws.title, "tableCount": 1},
+    ]
+
+    tables_catalog: list[dict] = []
+    for t in tables:
+        tn = table_number_from_title(t.get("title"))
+        tables_catalog.append(
+            {
+                "tableNumber": tn,
+                "sheetId": "offence",
+                "sheetName": offence_ws.title,
+                "title": t.get("title"),
+                "kind": "offence",
+                "district": t["district"],
+                "metricCount": len(t["series"]),
+            }
+        )
+    tables_catalog.append(
+        {
+            "tableNumber": table_number_from_title(traffic_title),
+            "sheetId": "traffic",
+            "sheetName": traffic_ws.title,
+            "title": traffic_title,
+            "kind": "traffic",
+            "district": "ACT",
+            "metricCount": len(traffic_series),
+        }
+    )
+    tables_catalog.append(
+        {
+            "tableNumber": table_number_from_title(fv_title),
+            "sheetId": "familyViolence",
+            "sheetName": fv_ws.title,
+            "title": fv_title,
+            "kind": "familyViolence",
+            "district": "ACT",
+            "metricCount": len(fv_series),
+        }
+    )
+
+    for t in tables:
+        t.pop("title", None)
 
     payload = {
         "sourceFile": xlsx.name,
+        "sheets": sheets_meta,
+        "tablesCatalog": tables_catalog,
         "offenceTables": tables,
         "periodsChronological": all_periods,
-        "traffic": {"periods": traffic_periods, "series": traffic_series},
-        "familyViolence": {"periods": fv_periods, "series": fv_series},
+        "traffic": {
+            "tableNumber": 11,
+            "title": traffic_title,
+            "periods": traffic_periods,
+            "series": traffic_series,
+        },
+        "familyViolence": {
+            "tableNumber": 12,
+            "title": fv_title,
+            "periods": fv_periods,
+            "series": fv_series,
+        },
         "violenceOffenceKeys": [
             "Assault",
             "Homicide",

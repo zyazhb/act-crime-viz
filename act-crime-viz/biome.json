@@ -1,7 +1,7 @@
 {
   "$schema": "https://biomejs.dev/schemas/1.9.4/schema.json",
   "files": {
-    "ignore": ["public/crime-data.json"]
+    "ignore": ["public/crime-data.json", "dist"]
   },
   "organizeImports": { "enabled": true },
   "linter": {

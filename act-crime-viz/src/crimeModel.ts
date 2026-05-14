@@ -14,6 +14,10 @@ export function familyMetricLabels(data: CrimePayload): string[] {
   return Object.keys(data.familyViolence.series);
 }
 
+export function trafficMetricLabels(data: CrimePayload): string[] {
+  return Object.keys(data.traffic.series);
+}
+
 function valueForOffence(
   table: OffenceTable,
   offence: string,
@@ -52,6 +56,14 @@ export function familyMetricValue(
   period: string,
 ): number {
   return data.familyViolence.series[metric]?.[period] ?? 0;
+}
+
+export function trafficMetricValue(
+  data: CrimePayload,
+  metric: string,
+  period: string,
+): number {
+  return data.traffic.series[metric]?.[period] ?? 0;
 }
 
 export function slicePeriods(
