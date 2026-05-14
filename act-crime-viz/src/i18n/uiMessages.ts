@@ -1,6 +1,7 @@
 export type Locale = "zh" | "en";
 
 const en = {
+  documentTitle: "ACT Policing — Crime statistics",
   brand: {
     policing: "ACT Policing",
     title: "Crime statistics",
@@ -20,11 +21,11 @@ const en = {
       "All recorded offence categories including property, traffic infringements, etc.",
     violence:
       "Violence-related offences: assault, homicide, sexual assault, robbery, and offences against the person.",
-    offence: "Single category: {{name}}",
+    offence: "Summed offence types: {{names}}",
     family: "Family violence (ACT-wide): {{name}}",
     traffic: "Traffic & transport (ACT-wide): {{name}}",
     community:
-      "Suburb-level (quarterly): {{district}} · {{category}}. Cannot be merged with monthly MARYY series.",
+      "Suburb-level (quarterly): {{district}} · {{categories}}. Values sum selected categories per suburb. Cannot be merged with monthly MAR/FEB series.",
   },
   loading: "Loading statistics…",
   errors: { loadFailed: "Failed to load data ({{status}})" },
@@ -36,15 +37,15 @@ const en = {
     sourceCommunity:
       "Suburb statistics (quarterly workbook; timeline partial vs monthly)",
     commPolicingDistrict: "Policing district (sheet)",
-    commCategory: "Offence / indicator category",
+    commCategory: "Offence / indicator categories (multi-select)",
     commSuburbsLegend: "Suburbs (multi-select, excludes Total row)",
     metricKind: "Metric",
     metricTotal: "All offences total",
     metricViolence: "Violence bundle",
-    metricOffence: "Single offence type",
+    metricOffence: "Offence types (multi-select, summed)",
     trafficMetric: "Traffic indicator",
     familyMetric: "Family violence indicator",
-    offenceType: "Offence type",
+    offenceType: "Offence types (multi-select, summed)",
     periodFrom: "Period from",
     periodTo: "Period to",
     compareMonth: "Comparison month",
@@ -94,6 +95,7 @@ const en = {
 } as const;
 
 const zh = {
+  documentTitle: "ACT 警务 · 犯罪统计",
   brand: {
     policing: "ACT 警务",
     title: "犯罪统计",
@@ -111,11 +113,11 @@ const zh = {
   metricDesc: {
     total: "全部记录罪行合计（含财产类、交通罚单等）。",
     violence: "暴力相关罪行汇总：袭击、凶杀、性侵犯、抢劫及针对人身罪行。",
-    offence: "单项罪行：{{name}}",
+    offence: "已选罪行相加：{{names}}",
     family: "家庭暴力（全 ACT）：{{name}}",
     traffic: "交通与运输（全 ACT）：{{name}}",
     community:
-      "社区（按季度）：{{district}} · {{category}}。与月度 MAR/FEB 序列时间轴不一致，无法拼成完整原序列。",
+      "社区（按季度）：{{district}} · {{categories}}。各社区数值为所选类别之和。与月度 MAR/FEB 序列时间轴不一致，无法拼成完整原序列。",
   },
   loading: "正在加载统计数据…",
   errors: { loadFailed: "加载数据失败（{{status}}）" },
@@ -126,15 +128,15 @@ const zh = {
     sourceFamily: "家庭暴力（表 12，全 ACT）",
     sourceCommunity: "社区统计（季度工作簿；时间范围与月度表不对齐）",
     commPolicingDistrict: "警务辖区（工作表）",
-    commCategory: "罪行 / 指标类别",
+    commCategory: "罪行 / 指标类别（多选）",
     commSuburbsLegend: "社区（多选，不含 Total 汇总行）",
     metricKind: "指标",
     metricTotal: "全部罪行合计",
     metricViolence: "暴力罪行汇总",
-    metricOffence: "单项罪行",
+    metricOffence: "罪行类别（多选、相加）",
     trafficMetric: "交通指标",
     familyMetric: "家庭暴力指标",
-    offenceType: "罪行类别",
+    offenceType: "罪行类别（多选、相加）",
     periodFrom: "时间范围（起）",
     periodTo: "时间范围（止）",
     compareMonth: "对比月份",

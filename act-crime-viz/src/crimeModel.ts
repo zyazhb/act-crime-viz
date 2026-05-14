@@ -45,7 +45,10 @@ export function metricValue(
     );
   }
   if (mode.kind === "offence") {
-    return valueForOffence(table, mode.offence, period);
+    return mode.offences.reduce(
+      (acc, o) => acc + valueForOffence(table, o, period),
+      0,
+    );
   }
   return 0;
 }

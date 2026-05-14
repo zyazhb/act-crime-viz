@@ -75,7 +75,7 @@ export type CrimePayload = {
 export type MetricMode =
   | { kind: "total" }
   | { kind: "violence_sum" }
-  | { kind: "offence"; offence: string }
+  | { kind: "offence"; offences: string[] }
   | { kind: "family"; metric: string }
   | { kind: "traffic"; metric: string };
 

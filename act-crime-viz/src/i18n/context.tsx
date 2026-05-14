@@ -51,6 +51,8 @@ export function I18nProvider({ children }: { children: ReactNode }) {
   useLayoutEffect(() => {
     if (typeof document === "undefined") return;
     document.documentElement.lang = locale === "zh" ? "zh-Hans" : "en";
+    const tr = locale === "zh" ? uiMessages.zh : uiMessages.en;
+    document.title = tr.documentTitle;
   }, [locale]);
 
   const setLocale = useCallback((l: Locale) => {

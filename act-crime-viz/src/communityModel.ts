@@ -44,3 +44,21 @@ export function communityValueAtPeriodIndex(
   const q = row.q;
   return periodIndex < q.length ? q[periodIndex] : 0;
 }
+
+/** Sum values for the same suburb across multiple offence / indicator categories. */
+export function communitySumValueAtPeriodIndex(
+  cq: CommunityQuarterly,
+  district: string,
+  categoryKeys: readonly string[],
+  suburb: string,
+  periodIndex: number,
+): number {
+  if (!categoryKeys.length || periodIndex < 0) return 0;
+  const cats = communityCategories(cq, district);
+  let sum = 0;
+  for (const key of categoryKeys) {
+    const cat = cats.find((c) => c.category === key);
+    sum += communityValueAtPeriodIndex(cat, suburb, periodIndex);
+  }
+  return sum;
+}

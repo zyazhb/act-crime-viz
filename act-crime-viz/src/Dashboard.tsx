@@ -16,7 +16,7 @@ import {
   communityCategories,
   communityDistrictKeys,
   communitySuburbNames,
-  communityValueAtPeriodIndex,
+  communitySumValueAtPeriodIndex,
   sliceCommunityPeriods,
 } from "./communityModel";
 import {
@@ -92,12 +92,12 @@ export default function Dashboard() {
   const [offenceMetricKind, setOffenceMetricKind] = useState<
     "total" | "violence_sum" | "offence"
   >("violence_sum");
-  const [offencePick, setOffencePick] = useState("");
+  const [offencePicks, setOffencePicks] = useState<string[]>([]);
   const [familyPick, setFamilyPick] = useState("");
   const [trafficPick, setTrafficPick] = useState("");
   const [comparePeriod, setComparePeriod] = useState("");
   const [commDistrict, setCommDistrict] = useState("");
-  const [commCategory, setCommCategory] = useState("");
+  const [commCategories, setCommCategories] = useState<string[]>([]);
   const [commSuburbs, setCommSuburbs] = useState<string[]>([]);
 
   useEffect(() => {
@@ -114,12 +114,12 @@ export default function Dashboard() {
         setPeriodTo(ch[ch.length - 1] ?? "");
         const act = full.offenceTables.find((x) => x.district === "ACT");
         const labels = act ? allOffenceLabels(act) : [];
-        setOffencePick(labels[0] ?? "");
+        setOffencePicks(labels[0] ? [labels[0]] : []);
         setFamilyPick(familyMetricLabels(full)[0] ?? "");
         setTrafficPick(trafficMetricLabels(full)[0] ?? "");
         if (full.communityQuarterly?.districts?.length) {
           setCommDistrict(full.communityQuarterly.districts[0].district);
-          setCommCategory("");
+          setCommCategories([]);
           setCommSuburbs([]);
         }
       })
@@ -135,8 +135,8 @@ export default function Dashboard() {
       return { kind: "family", metric: familyPick };
     if (offenceMetricKind === "total") return { kind: "total" };
     if (offenceMetricKind === "violence_sum") return { kind: "violence_sum" };
-    return { kind: "offence", offence: offencePick };
-  }, [dataSource, trafficPick, familyPick, offenceMetricKind, offencePick]);
+    return { kind: "offence", offences: offencePicks };
+  }, [dataSource, trafficPick, familyPick, offenceMetricKind, offencePicks]);
 
   const map = useMemo(() => (data ? tableByDistrict(data) : new Map()), [data]);
 
@@ -144,6 +144,15 @@ export default function Dashboard() {
     const act = data?.offenceTables.find((x) => x.district === "ACT");
     return act ? allOffenceLabels(act) : [];
   }, [data]);
+
+  useEffect(() => {
+    if (dataSource !== "offences" || offenceMetricKind !== "offence") return;
+    if (!offenceOptions.length) return;
+    setOffencePicks((prev) => {
+      const next = prev.filter((o) => offenceOptions.includes(o));
+      return next.length > 0 ? next : [offenceOptions[0]];
+    });
+  }, [dataSource, offenceMetricKind, offenceOptions]);
 
   const familyOptions = useMemo(
     () => (data ? familyMetricLabels(data) : []),
@@ -196,18 +205,33 @@ export default function Dashboard() {
   useEffect(() => {
     if (!data?.communityQuarterly || !commDistrict) return;
     const cats = communityCategories(data.communityQuarterly, commDistrict);
-    const first = cats[0];
-    if (!first) return;
-    const valid = commCategory
-      ? cats.find((c) => c.category === commCategory)
-      : undefined;
-    const cat = valid ?? first;
-    if (cat.category !== commCategory) {
-      setCommCategory(cat.category);
+    if (!cats[0]) return;
+    setCommCategories((prev) => {
+      const next = prev.filter((k) => cats.some((c) => c.category === k));
+      if (next.length > 0) return next;
+      return [cats[0].category];
+    });
+  }, [data, commDistrict]);
+
+  useEffect(() => {
+    if (!data?.communityQuarterly || !commDistrict || !commCategories.length)
+      return;
+    const cats = communityCategories(data.communityQuarterly, commDistrict);
+    const union = new Set<string>();
+    for (const k of commCategories) {
+      const c = cats.find((x) => x.category === k);
+      if (!c) continue;
+      for (const n of communitySuburbNames(c).filter((x) => x !== "Total")) {
+        union.add(n);
+      }
     }
-    const names = communitySuburbNames(cat).filter((n) => n !== "Total");
-    setCommSuburbs(names.slice(0, 6));
-  }, [data, commDistrict, commCategory]);
+    const list = [...union].sort();
+    setCommSuburbs((prev) => {
+      const next = prev.filter((s) => list.includes(s));
+      if (next.length > 0) return next;
+      return list.slice(0, 6);
+    });
+  }, [data, commDistrict, commCategories]);
 
   const periodOptions = useMemo(() => {
     if (!data) return [];
@@ -232,11 +256,30 @@ export default function Dashboard() {
     [data, commDistrict],
   );
 
+  const commSuburbNameOptions = useMemo(() => {
+    if (!data?.communityQuarterly || !commDistrict || !commCategories.length)
+      return [];
+    const cats = communityCategories(data.communityQuarterly, commDistrict);
+    const names = new Set<string>();
+    for (const k of commCategories) {
+      const c = cats.find((x) => x.category === k);
+      if (!c) continue;
+      for (const n of communitySuburbNames(c).filter((x) => x !== "Total")) {
+        names.add(n);
+      }
+    }
+    return [...names].sort();
+  }, [data, commDistrict, commCategories]);
+
   const metricDescription = useMemo(() => {
+    const sep = locale === "zh" ? "、" : ", ";
     if (dataSource === "community" && data?.communityQuarterly)
       return t("metricDesc.community", {
         district: tDistrict(commDistrict),
-        category: tMetric(commCategory),
+        categories:
+          commCategories.length > 0
+            ? commCategories.map((c) => tMetric(c)).join(sep)
+            : "—",
       });
     if (metricMode.kind === "traffic")
       return t("metricDesc.traffic", { name: tMetric(metricMode.metric) });
@@ -244,12 +287,18 @@ export default function Dashboard() {
       return t("metricDesc.family", { name: tMetric(metricMode.metric) });
     if (metricMode.kind === "total") return t("metricDesc.total");
     if (metricMode.kind === "violence_sum") return t("metricDesc.violence");
-    return t("metricDesc.offence", { name: tMetric(metricMode.offence) });
+    return t("metricDesc.offence", {
+      names:
+        metricMode.offences.length > 0
+          ? metricMode.offences.map((o) => tMetric(o)).join(sep)
+          : "—",
+    });
   }, [
     data,
     dataSource,
+    locale,
     commDistrict,
-    commCategory,
+    commCategories,
     metricMode,
     t,
     tMetric,
@@ -260,15 +309,18 @@ export default function Dashboard() {
     if (!data) return [];
     if (dataSource === "community" && data.communityQuarterly) {
       const cq = data.communityQuarterly;
-      const cat = communityCategories(cq, commDistrict).find(
-        (c) => c.category === commCategory,
-      );
       const idxFor = (p: string) => cq.periodsChronological.indexOf(p);
       return periodsInRange.map((period) => {
         const ix = idxFor(period);
         const row: Record<string, string | number> = { period };
         for (const s of commSuburbs) {
-          row[s] = communityValueAtPeriodIndex(cat, s, ix);
+          row[s] = communitySumValueAtPeriodIndex(
+            cq,
+            commDistrict,
+            commCategories,
+            s,
+            ix,
+          );
         }
         return row;
       });
@@ -294,7 +346,7 @@ export default function Dashboard() {
     dataSource,
     periodsInRange,
     commDistrict,
-    commCategory,
+    commCategories,
     commSuburbs,
     selectedDistricts,
     map,
@@ -337,14 +389,17 @@ export default function Dashboard() {
     }
     if (dataSource === "community" && data.communityQuarterly) {
       const cq = data.communityQuarterly;
-      const cat = communityCategories(cq, commDistrict).find(
-        (c) => c.category === commCategory,
-      );
       const ix = cq.periodsChronological.indexOf(comparePeriod);
       return [...commSuburbs].sort().map((sub) => ({
         id: sub,
         label: sub,
-        value: communityValueAtPeriodIndex(cat, sub, ix),
+        value: communitySumValueAtPeriodIndex(
+          cq,
+          commDistrict,
+          commCategories,
+          sub,
+          ix,
+        ),
       }));
     }
     return [];
@@ -354,7 +409,7 @@ export default function Dashboard() {
     dataSource,
     tMetric,
     commDistrict,
-    commCategory,
+    commCategories,
     commSuburbs,
   ]);
 
@@ -363,14 +418,17 @@ export default function Dashboard() {
     const latest = periodsInRange[periodsInRange.length - 1];
     if (dataSource === "community" && data.communityQuarterly) {
       const cq = data.communityQuarterly;
-      const cat = communityCategories(cq, commDistrict).find(
-        (c) => c.category === commCategory,
-      );
       const ix = cq.periodsChronological.indexOf(latest);
       return [...commSuburbs].sort().map((s) => ({
         id: s,
         label: s,
-        value: communityValueAtPeriodIndex(cat, s, ix),
+        value: communitySumValueAtPeriodIndex(
+          cq,
+          commDistrict,
+          commCategories,
+          s,
+          ix,
+        ),
         period: latest,
       }));
     }
@@ -415,7 +473,7 @@ export default function Dashboard() {
     tMetric,
     tDistrict,
     commDistrict,
-    commCategory,
+    commCategories,
     commSuburbs,
   ]);
 
@@ -436,6 +494,26 @@ export default function Dashboard() {
     setCommSuburbs((prev) =>
       prev.includes(s) ? prev.filter((x) => x !== s) : [...prev, s],
     );
+  };
+
+  const toggleCommCategory = (cat: string) => {
+    setCommCategories((prev) => {
+      if (prev.includes(cat)) {
+        const next = prev.filter((x) => x !== cat);
+        return next.length > 0 ? next : prev;
+      }
+      return [...prev, cat];
+    });
+  };
+
+  const toggleOffencePick = (o: string) => {
+    setOffencePicks((prev) => {
+      if (prev.includes(o)) {
+        const next = prev.filter((x) => x !== o);
+        return next.length > 0 ? next : prev;
+      }
+      return [...prev, o];
+    });
   };
 
   const xInterval = Math.max(0, Math.floor(periodsInRange.length / 12) - 1);
@@ -668,22 +746,48 @@ export default function Dashboard() {
           )}
 
           {dataSource === "offences" && offenceMetricKind === "offence" && (
-            <div>
-              <label htmlFor="offence-pick" style={lbl}>
-                {t("filter.offenceType")}
-              </label>
-              <select
-                id="offence-pick"
-                value={offencePick}
-                onChange={(e) => setOffencePick(e.target.value)}
-                style={ctl}
+            <div style={{ gridColumn: "1 / -1" }}>
+              <fieldset
+                style={{
+                  margin: 0,
+                  padding: 0,
+                  border: "none",
+                }}
               >
-                {offenceOptions.map((o) => (
-                  <option key={o} value={o}>
-                    {tMetric(o)}
-                  </option>
-                ))}
-              </select>
+                <legend style={{ ...lbl, padding: 0 }}>
+                  {t("filter.offenceType")}
+                </legend>
+                <div
+                  style={{
+                    display: "flex",
+                    flexWrap: "wrap",
+                    gap: "0.35rem",
+                    marginTop: 6,
+                    maxHeight: 200,
+                    overflowY: "auto",
+                  }}
+                >
+                  {offenceOptions.map((o) => (
+                    <button
+                      key={o}
+                      type="button"
+                      onClick={() => toggleOffencePick(o)}
+                      style={{
+                        ...chip,
+                        opacity: offencePicks.includes(o) ? 1 : 0.42,
+                        borderColor: offencePicks.includes(o)
+                          ? "#5b8def"
+                          : "#2a3548",
+                        background: offencePicks.includes(o)
+                          ? "#1a2438"
+                          : "#151b26",
+                      }}
+                    >
+                      {tMetric(o)}
+                    </button>
+                  ))}
+                </div>
+              </fieldset>
             </div>
           )}
 
@@ -746,22 +850,50 @@ export default function Dashboard() {
                   ))}
                 </select>
               </div>
-              <div>
-                <label htmlFor="comm-cat" style={lbl}>
-                  {t("filter.commCategory")}
-                </label>
-                <select
-                  id="comm-cat"
-                  value={commCategory}
-                  onChange={(e) => setCommCategory(e.target.value)}
-                  style={ctl}
+              <div style={{ gridColumn: "1 / -1" }}>
+                <fieldset
+                  style={{
+                    margin: 0,
+                    padding: 0,
+                    border: "none",
+                  }}
                 >
-                  {commCategoryOptions.map((c) => (
-                    <option key={c.category} value={c.category}>
-                      {tMetric(c.category)}
-                    </option>
-                  ))}
-                </select>
+                  <legend style={{ ...lbl, padding: 0 }}>
+                    {t("filter.commCategory")}
+                  </legend>
+                  <div
+                    style={{
+                      display: "flex",
+                      flexWrap: "wrap",
+                      gap: "0.35rem",
+                      marginTop: 6,
+                      maxHeight: 160,
+                      overflowY: "auto",
+                    }}
+                  >
+                    {commCategoryOptions.map((c) => (
+                      <button
+                        key={c.category}
+                        type="button"
+                        onClick={() => toggleCommCategory(c.category)}
+                        style={{
+                          ...chip,
+                          opacity: commCategories.includes(c.category)
+                            ? 1
+                            : 0.42,
+                          borderColor: commCategories.includes(c.category)
+                            ? "#5b8def"
+                            : "#2a3548",
+                          background: commCategories.includes(c.category)
+                            ? "#1a2438"
+                            : "#151b26",
+                        }}
+                      >
+                        {tMetric(c.category)}
+                      </button>
+                    ))}
+                  </div>
+                </fieldset>
               </div>
               <div style={{ gridColumn: "1 / -1" }}>
                 <fieldset
@@ -784,31 +916,25 @@ export default function Dashboard() {
                       overflowY: "auto",
                     }}
                   >
-                    {communitySuburbNames(
-                      commCategoryOptions.find(
-                        (x) => x.category === commCategory,
-                      ),
-                    )
-                      .filter((n) => n !== "Total")
-                      .map((s) => (
-                        <button
-                          key={s}
-                          type="button"
-                          onClick={() => toggleCommSuburb(s)}
-                          style={{
-                            ...chip,
-                            opacity: commSuburbs.includes(s) ? 1 : 0.42,
-                            borderColor: commSuburbs.includes(s)
-                              ? "#5b8def"
-                              : "#2a3548",
-                            background: commSuburbs.includes(s)
-                              ? "#1a2438"
-                              : "#151b26",
-                          }}
-                        >
-                          {s}
-                        </button>
-                      ))}
+                    {commSuburbNameOptions.map((s) => (
+                      <button
+                        key={s}
+                        type="button"
+                        onClick={() => toggleCommSuburb(s)}
+                        style={{
+                          ...chip,
+                          opacity: commSuburbs.includes(s) ? 1 : 0.42,
+                          borderColor: commSuburbs.includes(s)
+                            ? "#5b8def"
+                            : "#2a3548",
+                          background: commSuburbs.includes(s)
+                            ? "#1a2438"
+                            : "#151b26",
+                        }}
+                      >
+                        {s}
+                      </button>
+                    ))}
                   </div>
                 </fieldset>
               </div>
