@@ -1,16 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
-import {
-  Bar,
-  BarChart,
-  CartesianGrid,
-  Legend,
-  Line,
-  LineChart,
-  ResponsiveContainer,
-  Tooltip,
-  XAxis,
-  YAxis,
-} from "recharts";
+import { lazy, Suspense, useEffect, useMemo, useState } from "react";
 import { catalogKindPath } from "./catalogKindPath";
 import {
   communityCategories,
@@ -32,9 +20,10 @@ import {
 import { chip, ctl, h2, lbl, tableStyle, td, th } from "./dashboardStyles";
 import { useI18n } from "./i18n/context";
 import { loadCrimeData } from "./loadCrimeData";
-import { colorForSeriesKey } from "./seriesColor";
-import { TrendsLineTooltipWithLayout } from "./trendsLineTooltip";
 import type { CrimePayload, DataSourceId, MetricMode } from "./types";
+
+const DashboardTrendsChart = lazy(() => import("./DashboardTrendsChart"));
+const DashboardCompareChart = lazy(() => import("./DashboardCompareChart"));
 
 type TabId = "overview" | "trends" | "compare";
 
@@ -1218,160 +1207,69 @@ export default function Dashboard() {
         )}
 
         {tab === "trends" && (
-          <section>
-            <h2 style={h2}>{t("nav.trends")}</h2>
-            <div style={{ height: 420, width: "100%" }}>
-              <ResponsiveContainer width="100%" height="100%">
-                <LineChart
-                  data={trendRows}
-                  margin={{ top: 8, right: 24, left: 0, bottom: 0 }}
-                >
-                  <CartesianGrid strokeDasharray="3 3" stroke="#1e2736" />
-                  <XAxis
-                    dataKey="period"
-                    tick={{ fill: "#7a8aa3", fontSize: 11 }}
-                    interval={xInterval}
-                  />
-                  <YAxis
-                    domain={[0, "auto"]}
-                    tick={{ fill: "#7a8aa3", fontSize: 11 }}
-                  />
-                  <Tooltip
-                    contentStyle={{
-                      margin: 0,
-                      padding: 0,
-                      background: "transparent",
-                      border: "none",
-                      boxShadow: "none",
-                    }}
-                    cursor={{
-                      stroke: "#8892a8",
-                      strokeWidth: 1,
-                      strokeDasharray: "4 4",
-                    }}
-                    wrapperStyle={{ zIndex: 20 }}
-                    content={(tipProps) => (
-                      <TrendsLineTooltipWithLayout
-                        active={tipProps.active}
-                        label={tipProps.label}
-                        payload={tipProps.payload}
-                        coordinate={tipProps.coordinate}
-                        activeIndex={tipProps.activeIndex}
-                        accessibilityLayer={tipProps.accessibilityLayer}
-                        t={t}
-                        tMetric={tMetric}
-                        dataSource={dataSource}
-                        communityPie={
-                          dataSource === "community" && data.communityQuarterly
-                            ? {
-                                cq: data.communityQuarterly,
-                                district: commDistrict,
-                                selectedSuburbs: commSuburbs,
-                                categoryKeys: commCategories,
-                              }
-                            : undefined
-                        }
-                        trendYDomain={trendYDomain}
-                      />
-                    )}
-                  />
-                  <Legend />
-                  {dataSource === "community" ? (
-                    commSuburbs.map((s) => (
-                      <Line
-                        key={s}
-                        type="monotone"
-                        dataKey={s}
-                        name={s}
-                        stroke={colorForSeriesKey(s)}
-                        dot={false}
-                        strokeWidth={2}
-                      />
-                    ))
-                  ) : metricMode.kind === "traffic" ||
-                    metricMode.kind === "family" ? (
-                    <Line
-                      type="monotone"
-                      dataKey={actWideKey}
-                      name={t("district.actWide")}
-                      stroke={colorForSeriesKey(actWideKey)}
-                      dot={false}
-                      strokeWidth={2}
-                    />
-                  ) : (
-                    selectedDistricts.map((d) => (
-                      <Line
-                        key={d}
-                        type="monotone"
-                        dataKey={d}
-                        name={tDistrict(d)}
-                        stroke={colorForSeriesKey(d)}
-                        dot={false}
-                        strokeWidth={2}
-                      />
-                    ))
-                  )}
-                </LineChart>
-              </ResponsiveContainer>
-            </div>
-          </section>
+          <Suspense
+            fallback={
+              <div
+                style={{
+                  minHeight: 420,
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  color: "#6b7a94",
+                  fontSize: "0.85rem",
+                }}
+              >
+                {t("loading")}
+              </div>
+            }
+          >
+            <DashboardTrendsChart
+              trendRows={trendRows}
+              xInterval={xInterval}
+              trendYDomain={trendYDomain}
+              dataSource={dataSource}
+              communityQuarterly={data.communityQuarterly}
+              commDistrict={commDistrict}
+              commSuburbs={commSuburbs}
+              commCategories={commCategories}
+              metricMode={metricMode}
+              selectedDistricts={selectedDistricts}
+              actWideKey={actWideKey}
+              t={t}
+              tMetric={tMetric}
+              tDistrict={tDistrict}
+            />
+          </Suspense>
         )}
 
         {tab === "compare" && (
-          <section>
-            <h2 style={h2}>{compareChartTitle}</h2>
-            <div style={{ height: 420, width: "100%" }}>
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart
-                  data={isClusterBar ? compareBarRows : compareDistrictRows}
-                  margin={{
-                    top: 8,
-                    right: 16,
-                    left: 8,
-                    bottom: clusterBarTall ? 140 : isClusterBar ? 120 : 64,
-                  }}
-                >
-                  <CartesianGrid strokeDasharray="3 3" stroke="#1e2736" />
-                  <XAxis
-                    dataKey="label"
-                    tick={{ fill: "#7a8aa3", fontSize: 10 }}
-                    angle={clusterBarTall ? -40 : isClusterBar ? -35 : -28}
-                    textAnchor="end"
-                    height={clusterBarTall ? 150 : isClusterBar ? 130 : 70}
-                  />
-                  <YAxis tick={{ fill: "#7a8aa3", fontSize: 11 }} />
-                  <Tooltip
-                    contentStyle={{
-                      background: "#151b26",
-                      border: "1px solid #2a3548",
-                    }}
-                    labelStyle={{ color: "#c5d0e6" }}
-                  />
-                  <Bar
-                    dataKey="value"
-                    name={comparePeriod}
-                    fill="#5b8def"
-                    radius={[6, 6, 0, 0]}
-                  />
-                </BarChart>
-              </ResponsiveContainer>
-            </div>
-            {dataSource === "familyViolence" && (
-              <p style={{ color: "#7a8aa3", fontSize: "0.85rem" }}>
-                {t("family.compareNote")}
-              </p>
-            )}
-            {dataSource === "traffic" && (
-              <p style={{ color: "#7a8aa3", fontSize: "0.85rem" }}>
-                {t("traffic.compareNote")}
-              </p>
-            )}
-            {dataSource === "community" && (
-              <p style={{ color: "#7a8aa3", fontSize: "0.85rem" }}>
-                {t("community.compareNote")}
-              </p>
-            )}
-          </section>
+          <Suspense
+            fallback={
+              <div
+                style={{
+                  minHeight: 420,
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  color: "#6b7a94",
+                  fontSize: "0.85rem",
+                }}
+              >
+                {t("loading")}
+              </div>
+            }
+          >
+            <DashboardCompareChart
+              compareChartTitle={compareChartTitle}
+              isClusterBar={isClusterBar}
+              clusterBarTall={clusterBarTall}
+              compareBarRows={compareBarRows}
+              compareDistrictRows={compareDistrictRows}
+              comparePeriod={comparePeriod}
+              dataSource={dataSource}
+              t={t}
+            />
+          </Suspense>
         )}
       </main>
     </div>
