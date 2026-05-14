@@ -2,6 +2,8 @@ import react from "@vitejs/plugin-react";
 import { defineConfig } from "vite";
 
 export default defineConfig({
+  /** Emit relative URLs in `dist` (subpath deploy, static hosts, `file://`). */
+  base: "./",
   plugins: [react()],
   publicDir: "public",
   build: {

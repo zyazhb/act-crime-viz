@@ -615,7 +615,7 @@ export default function Dashboard() {
           >
             {locale === "zh" ? "语言" : "Language"}
           </span>
-          {(["zh", "en"] as const).map((lng) => (
+          {(["en", "zh"] as const).map((lng) => (
             <button
               key={lng}
               type="button"

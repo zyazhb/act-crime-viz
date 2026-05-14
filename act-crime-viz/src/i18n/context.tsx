@@ -43,9 +43,9 @@ const I18nContext = createContext<I18nValue | null>(null);
 
 export function I18nProvider({ children }: { children: ReactNode }) {
   const [locale, setLocaleState] = useState<Locale>(() => {
-    if (typeof localStorage === "undefined") return "zh";
+    if (typeof localStorage === "undefined") return "en";
     const s = localStorage.getItem(STORAGE_KEY);
-    return s === "en" ? "en" : "zh";
+    return s === "zh" ? "zh" : "en";
   });
 
   useLayoutEffect(() => {
