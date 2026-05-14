@@ -1,4 +1,4 @@
-import type { CSSProperties } from "react";
+import type { ComponentProps, CSSProperties } from "react";
 import { useEffect, useMemo, useState } from "react";
 import {
   Bar,
@@ -12,6 +12,8 @@ import {
   PieChart,
   ResponsiveContainer,
   Tooltip,
+  usePlotArea,
+  useYAxisDomain,
   XAxis,
   YAxis,
 } from "recharts";
@@ -34,25 +36,13 @@ import {
   trafficMetricValue,
 } from "./crimeModel";
 import { useI18n } from "./i18n/context";
+import { colorForSeriesKey } from "./seriesColor";
 import type {
   CommunityQuarterly,
   CrimePayload,
   DataSourceId,
   MetricMode,
 } from "./types";
-
-const PALETTE = [
-  "#5b8def",
-  "#34c7a0",
-  "#e8a23c",
-  "#e05d8c",
-  "#9b7bed",
-  "#5cc8ff",
-  "#c4e05d",
-  "#ff8a6a",
-  "#6a9eff",
-  "#d0d5de",
-];
 
 type TabId = "overview" | "trends" | "compare";
 
@@ -64,32 +54,19 @@ type TrendTipPayload = {
   stroke?: string;
 };
 
-type ViewBoxLike = {
-  x?: number;
-  y?: number;
-  width?: number;
-  height?: number;
-};
+/** Tooltip pie: fixed pixel size — avoid ResponsiveContainer inside Tooltip (mis-measures → offset). */
+const TRENDS_PIE_W = 112;
+const TRENDS_PIE_H = 112;
+const TRENDS_PIE_CX = TRENDS_PIE_W / 2;
+const TRENDS_PIE_CY = TRENDS_PIE_H / 2;
+const TRENDS_PIE_OUTER = 48;
+const TRENDS_PIE_INNER = 26;
 
-/** Map cursor Y inside plot `viewBox` to a linear value in `yDomain` (matches default left Y-axis). */
-function mouseYToDataValue(
-  chartY: number,
-  viewBox: ViewBoxLike | undefined,
-  yDomain: readonly [number, number],
-): number | null {
-  if (viewBox?.height == null || viewBox.height <= 0) return null;
-  const top = viewBox.y ?? 0;
-  const t = (chartY - top) / viewBox.height;
-  const nv = Math.min(1, Math.max(0, 1 - t));
-  const [d0, d1] = yDomain;
-  return d0 + nv * (d1 - d0);
-}
-
-/** Pick the series (line) whose value is closest to the Y inferred from the cursor, optionally restricted to `allowKeys`. */
+/** Pick series whose value is nearest to Y-axis value inferred from cursor Y inside the plot box. */
 function pickHoveredSeriesKey(
   payload: TrendTipPayload[] | undefined,
   chartY: number | undefined,
-  viewBox: ViewBoxLike | undefined,
+  plot: { x?: number; y?: number; width?: number; height?: number } | undefined,
   yDomain: readonly [number, number],
   allowKeys?: ReadonlySet<string> | null,
 ): string | null {
@@ -102,10 +79,21 @@ function pickHoveredSeriesKey(
     return Number.isFinite(v);
   });
   if (!usable.length) return null;
-  const dataY =
-    chartY != null && Number.isFinite(chartY)
-      ? mouseYToDataValue(chartY, viewBox, yDomain)
-      : null;
+
+  let dataY: number | null = null;
+  if (
+    chartY != null &&
+    Number.isFinite(chartY) &&
+    plot?.height != null &&
+    plot.height > 0
+  ) {
+    const top = plot.y ?? 0;
+    const t = (chartY - top) / plot.height;
+    const nv = Math.min(1, Math.max(0, 1 - t));
+    const [d0, d1] = yDomain;
+    dataY = d0 + nv * (d1 - d0);
+  }
+
   if (dataY != null && Number.isFinite(dataY)) {
     let best: string | null = null;
     let bestD = Number.POSITIVE_INFINITY;
@@ -150,19 +138,17 @@ function TrendsLineTooltipContent({
   tMetric,
   dataSource,
   communityPie,
-  palette,
   trendYDomain,
 }: {
   active?: boolean;
   label?: unknown;
   payload?: TrendTipPayload[];
   coordinate?: { x?: number; y?: number };
-  viewBox?: ViewBoxLike;
+  viewBox?: { x?: number; y?: number; width?: number; height?: number };
   t: (path: string, vars?: Record<string, string>) => string;
   tMetric: (key: string) => string;
   dataSource: DataSourceId;
   communityPie?: CommunityPieCtx;
-  palette: readonly string[];
   trendYDomain: readonly [number, number];
 }) {
   if (!active || !payload?.length) return null;
@@ -192,8 +178,7 @@ function TrendsLineTooltipContent({
     dataSource === "community" &&
     communityPie &&
     periodLabel &&
-    communityPie.categoryKeys.length > 0 &&
-    payload?.length
+    communityPie.categoryKeys.length > 0
   ) {
     pieTitleKey = "trends.compositionCategories";
     const allow = new Set(communityPie.selectedSuburbs);
@@ -220,11 +205,11 @@ function TrendsLineTooltipContent({
       const sorted = raw
         .filter((r) => r.value > 0)
         .sort((a, b) => a.category.localeCompare(b.category));
-      pieData = sorted.map((r, i) => ({
+      pieData = sorted.map((r) => ({
         id: r.category,
         name: tMetric(r.category),
         value: r.value,
-        color: palette[i % palette.length],
+        color: colorForSeriesKey(r.category),
       }));
     }
   } else {
@@ -256,9 +241,8 @@ function TrendsLineTooltipContent({
       <div
         style={{
           flexShrink: 0,
-          width: 168,
+          width: 156,
           minWidth: 140,
-          height: "auto",
         }}
       >
         <div
@@ -272,33 +256,42 @@ function TrendsLineTooltipContent({
           {t(pieTitleKey)}
         </div>
         {total > 0 ? (
-          <div style={{ width: 128, height: 118 }}>
-            <ResponsiveContainer width="100%" height="100%">
-              <PieChart>
-                <Pie
-                  data={pieData}
-                  dataKey="value"
-                  nameKey="name"
-                  cx="50%"
-                  cy="50%"
-                  innerRadius={30}
-                  outerRadius={52}
-                  paddingAngle={1}
-                  stroke="#0d1117"
-                  strokeWidth={1}
-                  isAnimationActive={false}
-                >
-                  {pieData.map((entry) => (
-                    <Cell key={entry.id} fill={entry.color} />
-                  ))}
-                </Pie>
-              </PieChart>
-            </ResponsiveContainer>
+          <div
+            style={{
+              width: TRENDS_PIE_W,
+              height: TRENDS_PIE_H,
+              lineHeight: 0,
+            }}
+          >
+            <PieChart
+              width={TRENDS_PIE_W}
+              height={TRENDS_PIE_H}
+              style={{ display: "block" }}
+            >
+              <Pie
+                data={pieData}
+                dataKey="value"
+                nameKey="name"
+                cx={TRENDS_PIE_CX}
+                cy={TRENDS_PIE_CY}
+                innerRadius={TRENDS_PIE_INNER}
+                outerRadius={TRENDS_PIE_OUTER}
+                paddingAngle={1}
+                stroke="#0d1117"
+                strokeWidth={1}
+                isAnimationActive={false}
+              >
+                {pieData.map((entry) => (
+                  <Cell key={entry.id} fill={entry.color} />
+                ))}
+              </Pie>
+            </PieChart>
           </div>
         ) : (
           <div
             style={{
-              height: 118,
+              width: TRENDS_PIE_W,
+              height: TRENDS_PIE_H,
               display: "flex",
               alignItems: "center",
               justifyContent: "center",
@@ -393,9 +386,9 @@ function TrendsLineTooltipContent({
             overflowY: "auto",
           }}
         >
-          {rows.map((r, i) => (
+          {rows.map((r) => (
             <li
-              key={`${r.name}-${i}`}
+              key={r.name}
               style={{
                 display: "flex",
                 alignItems: "center",
@@ -423,6 +416,38 @@ function TrendsLineTooltipContent({
         </ul>
       </div>
     </div>
+  );
+}
+
+function parseFinitePair(d: unknown): readonly [number, number] | null {
+  if (!Array.isArray(d) || d.length < 2) return null;
+  const a = Number(d[0]);
+  const b = Number(d[1]);
+  if (!Number.isFinite(a) || !Number.isFinite(b)) return null;
+  return [a, b];
+}
+
+/**
+ * Recharts v3 no longer passes `viewBox` into custom Tooltip content; without it,
+ * Y→value mapping in pickHoveredSeriesKey fails and the pie always falls back to the max series.
+ */
+function TrendsLineTooltipWithLayout(
+  props: ComponentProps<typeof TrendsLineTooltipContent>,
+) {
+  const plot = usePlotArea();
+  const yDom = useYAxisDomain(0);
+  const fromAxis = parseFinitePair(yDom);
+  const viewBox =
+    plot != null
+      ? { x: plot.x, y: plot.y, width: plot.width, height: plot.height }
+      : props.viewBox;
+  const trendYDomain = fromAxis ?? props.trendYDomain;
+  return (
+    <TrendsLineTooltipContent
+      {...props}
+      viewBox={viewBox}
+      trendYDomain={trendYDomain}
+    />
   );
 }
 
@@ -1250,6 +1275,40 @@ export default function Dashboard() {
                   ))}
                 </select>
               </div>
+              <div>
+                <label htmlFor="period-from" style={lbl}>
+                  {t("filter.periodFrom")}
+                </label>
+                <select
+                  id="period-from"
+                  value={periodFrom}
+                  onChange={(e) => setPeriodFrom(e.target.value)}
+                  style={ctl}
+                >
+                  {periodOptions.map((p) => (
+                    <option key={p} value={p}>
+                      {p}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label htmlFor="period-to" style={lbl}>
+                  {t("filter.periodTo")}
+                </label>
+                <select
+                  id="period-to"
+                  value={periodTo}
+                  onChange={(e) => setPeriodTo(e.target.value)}
+                  style={ctl}
+                >
+                  {periodOptions.map((p) => (
+                    <option key={p} value={p}>
+                      {p}
+                    </option>
+                  ))}
+                </select>
+              </div>
               <div style={{ gridColumn: "1 / -1" }}>
                 <fieldset
                   style={{
@@ -1341,40 +1400,44 @@ export default function Dashboard() {
             </>
           )}
 
-          <div>
-            <label htmlFor="period-from" style={lbl}>
-              {t("filter.periodFrom")}
-            </label>
-            <select
-              id="period-from"
-              value={periodFrom}
-              onChange={(e) => setPeriodFrom(e.target.value)}
-              style={ctl}
-            >
-              {periodOptions.map((p) => (
-                <option key={p} value={p}>
-                  {p}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div>
-            <label htmlFor="period-to" style={lbl}>
-              {t("filter.periodTo")}
-            </label>
-            <select
-              id="period-to"
-              value={periodTo}
-              onChange={(e) => setPeriodTo(e.target.value)}
-              style={ctl}
-            >
-              {periodOptions.map((p) => (
-                <option key={p} value={p}>
-                  {p}
-                </option>
-              ))}
-            </select>
-          </div>
+          {dataSource !== "community" && (
+            <>
+              <div>
+                <label htmlFor="period-from" style={lbl}>
+                  {t("filter.periodFrom")}
+                </label>
+                <select
+                  id="period-from"
+                  value={periodFrom}
+                  onChange={(e) => setPeriodFrom(e.target.value)}
+                  style={ctl}
+                >
+                  {periodOptions.map((p) => (
+                    <option key={p} value={p}>
+                      {p}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label htmlFor="period-to" style={lbl}>
+                  {t("filter.periodTo")}
+                </label>
+                <select
+                  id="period-to"
+                  value={periodTo}
+                  onChange={(e) => setPeriodTo(e.target.value)}
+                  style={ctl}
+                >
+                  {periodOptions.map((p) => (
+                    <option key={p} value={p}>
+                      {p}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </>
+          )}
 
           {dataSource === "offences" && (
             <div style={{ gridColumn: "1 / -1" }}>
@@ -1614,6 +1677,13 @@ export default function Dashboard() {
                     tick={{ fill: "#7a8aa3", fontSize: 11 }}
                   />
                   <Tooltip
+                    contentStyle={{
+                      margin: 0,
+                      padding: 0,
+                      background: "transparent",
+                      border: "none",
+                      boxShadow: "none",
+                    }}
                     cursor={{
                       stroke: "#8892a8",
                       strokeWidth: 1,
@@ -1621,7 +1691,7 @@ export default function Dashboard() {
                     }}
                     wrapperStyle={{ zIndex: 20 }}
                     content={(tipProps) => (
-                      <TrendsLineTooltipContent
+                      <TrendsLineTooltipWithLayout
                         {...tipProps}
                         t={t}
                         tMetric={tMetric}
@@ -1636,20 +1706,19 @@ export default function Dashboard() {
                               }
                             : undefined
                         }
-                        palette={PALETTE}
                         trendYDomain={trendYDomain}
                       />
                     )}
                   />
                   <Legend />
                   {dataSource === "community" ? (
-                    commSuburbs.map((s, i) => (
+                    commSuburbs.map((s) => (
                       <Line
                         key={s}
                         type="monotone"
                         dataKey={s}
                         name={s}
-                        stroke={PALETTE[i % PALETTE.length]}
+                        stroke={colorForSeriesKey(s)}
                         dot={false}
                         strokeWidth={2}
                       />
@@ -1660,18 +1729,18 @@ export default function Dashboard() {
                       type="monotone"
                       dataKey={actWideKey}
                       name={t("district.actWide")}
-                      stroke={PALETTE[0]}
+                      stroke={colorForSeriesKey(actWideKey)}
                       dot={false}
                       strokeWidth={2}
                     />
                   ) : (
-                    selectedDistricts.map((d, i) => (
+                    selectedDistricts.map((d) => (
                       <Line
                         key={d}
                         type="monotone"
                         dataKey={d}
                         name={tDistrict(d)}
-                        stroke={PALETTE[i % PALETTE.length]}
+                        stroke={colorForSeriesKey(d)}
                         dot={false}
                         strokeWidth={2}
                       />
