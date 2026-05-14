@@ -13,6 +13,12 @@ const en = {
     trends: "Trends",
     compare: "Compare",
   },
+  trends: {
+    composition: "Composition",
+    compositionCategories: "Offence / indicator categories",
+    pieLegend: "Legend (hovered line)",
+    noPositive: "No positive values for a pie chart.",
+  },
   app: {
     title: "Australian Capital Territory (ACT) crime statistics",
   },
@@ -106,6 +112,12 @@ const zh = {
     overview: "数据概览",
     trends: "历史趋势",
     compare: "对比分析",
+  },
+  trends: {
+    composition: "构成比例",
+    compositionCategories: "罪行 / 指标类别",
+    pieLegend: "图例（当前鼠标下的折线）",
+    noPositive: "无正值，无法绘制构成饼图。",
   },
   app: {
     title: "澳大利亚首都领地（ACT）犯罪与相关统计",

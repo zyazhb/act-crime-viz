@@ -4,9 +4,12 @@ import {
   Bar,
   BarChart,
   CartesianGrid,
+  Cell,
   Legend,
   Line,
   LineChart,
+  Pie,
+  PieChart,
   ResponsiveContainer,
   Tooltip,
   XAxis,
@@ -14,6 +17,7 @@ import {
 } from "recharts";
 import {
   communityCategories,
+  communityCategoryBreakdownForSuburbAtPeriodIndex,
   communityDistrictKeys,
   communitySuburbNames,
   communitySumValueAtPeriodIndex,
@@ -30,7 +34,12 @@ import {
   trafficMetricValue,
 } from "./crimeModel";
 import { useI18n } from "./i18n/context";
-import type { CrimePayload, DataSourceId, MetricMode } from "./types";
+import type {
+  CommunityQuarterly,
+  CrimePayload,
+  DataSourceId,
+  MetricMode,
+} from "./types";
 
 const PALETTE = [
   "#5b8def",
@@ -46,6 +55,376 @@ const PALETTE = [
 ];
 
 type TabId = "overview" | "trends" | "compare";
+
+type TrendTipPayload = {
+  dataKey?: string | number;
+  name?: string;
+  value?: number | string;
+  color?: string;
+  stroke?: string;
+};
+
+type ViewBoxLike = {
+  x?: number;
+  y?: number;
+  width?: number;
+  height?: number;
+};
+
+/** Map cursor Y inside plot `viewBox` to a linear value in `yDomain` (matches default left Y-axis). */
+function mouseYToDataValue(
+  chartY: number,
+  viewBox: ViewBoxLike | undefined,
+  yDomain: readonly [number, number],
+): number | null {
+  if (viewBox?.height == null || viewBox.height <= 0) return null;
+  const top = viewBox.y ?? 0;
+  const t = (chartY - top) / viewBox.height;
+  const nv = Math.min(1, Math.max(0, 1 - t));
+  const [d0, d1] = yDomain;
+  return d0 + nv * (d1 - d0);
+}
+
+/** Pick the series (line) whose value is closest to the Y inferred from the cursor, optionally restricted to `allowKeys`. */
+function pickHoveredSeriesKey(
+  payload: TrendTipPayload[] | undefined,
+  chartY: number | undefined,
+  viewBox: ViewBoxLike | undefined,
+  yDomain: readonly [number, number],
+  allowKeys?: ReadonlySet<string> | null,
+): string | null {
+  if (!payload?.length) return null;
+  const list = allowKeys
+    ? payload.filter((p) => allowKeys.has(String(p.dataKey ?? p.name ?? "")))
+    : payload;
+  const usable = list.filter((p) => {
+    const v = typeof p.value === "number" ? p.value : Number(p.value);
+    return Number.isFinite(v);
+  });
+  if (!usable.length) return null;
+  const dataY =
+    chartY != null && Number.isFinite(chartY)
+      ? mouseYToDataValue(chartY, viewBox, yDomain)
+      : null;
+  if (dataY != null && Number.isFinite(dataY)) {
+    let best: string | null = null;
+    let bestD = Number.POSITIVE_INFINITY;
+    for (const p of usable) {
+      const v = Number(p.value);
+      const k = String(p.dataKey ?? p.name ?? "");
+      const d = Math.abs(v - dataY);
+      if (d < bestD) {
+        bestD = d;
+        best = k;
+      }
+    }
+    if (best) return best;
+  }
+  let maxK: string | null = null;
+  let maxV = -Number.POSITIVE_INFINITY;
+  for (const p of usable) {
+    const v = Number(p.value);
+    const k = String(p.dataKey ?? p.name ?? "");
+    if (v > maxV) {
+      maxV = v;
+      maxK = k;
+    }
+  }
+  return maxK;
+}
+
+type CommunityPieCtx = {
+  cq: CommunityQuarterly;
+  district: string;
+  selectedSuburbs: readonly string[];
+  categoryKeys: readonly string[];
+};
+
+function TrendsLineTooltipContent({
+  active,
+  label,
+  payload,
+  coordinate,
+  viewBox,
+  t,
+  tMetric,
+  dataSource,
+  communityPie,
+  palette,
+  trendYDomain,
+}: {
+  active?: boolean;
+  label?: unknown;
+  payload?: TrendTipPayload[];
+  coordinate?: { x?: number; y?: number };
+  viewBox?: ViewBoxLike;
+  t: (path: string, vars?: Record<string, string>) => string;
+  tMetric: (key: string) => string;
+  dataSource: DataSourceId;
+  communityPie?: CommunityPieCtx;
+  palette: readonly string[];
+  trendYDomain: readonly [number, number];
+}) {
+  if (!active || !payload?.length) return null;
+  const rows = payload.map((e) => {
+    const raw = e.value;
+    const v =
+      typeof raw === "number"
+        ? raw
+        : typeof raw === "string"
+          ? Number(raw)
+          : Number.NaN;
+    return {
+      name: String(e.name ?? e.dataKey ?? "—"),
+      value: Number.isFinite(v) ? v : 0,
+      color: String(e.color ?? e.stroke ?? "#5b8def"),
+    };
+  });
+
+  const periodLabel = label == null || label === "" ? null : String(label);
+
+  let pieData: { id: string; name: string; value: number; color: string }[] =
+    [];
+  let pieTitleKey: "trends.composition" | "trends.compositionCategories" =
+    "trends.composition";
+
+  if (
+    dataSource === "community" &&
+    communityPie &&
+    periodLabel &&
+    communityPie.categoryKeys.length > 0 &&
+    payload?.length
+  ) {
+    pieTitleKey = "trends.compositionCategories";
+    const allow = new Set(communityPie.selectedSuburbs);
+    const hoveredSuburb = pickHoveredSeriesKey(
+      payload,
+      coordinate?.y,
+      viewBox,
+      trendYDomain,
+      allow,
+    );
+    const ix = communityPie.cq.periodsChronological.indexOf(periodLabel);
+    if (
+      ix >= 0 &&
+      hoveredSuburb &&
+      communityPie.selectedSuburbs.includes(hoveredSuburb)
+    ) {
+      const raw = communityCategoryBreakdownForSuburbAtPeriodIndex(
+        communityPie.cq,
+        communityPie.district,
+        hoveredSuburb,
+        communityPie.categoryKeys,
+        ix,
+      );
+      const sorted = raw
+        .filter((r) => r.value > 0)
+        .sort((a, b) => a.category.localeCompare(b.category));
+      pieData = sorted.map((r, i) => ({
+        id: r.category,
+        name: tMetric(r.category),
+        value: r.value,
+        color: palette[i % palette.length],
+      }));
+    }
+  } else {
+    const positive = rows.filter((r) => r.value > 0);
+    pieData = positive.map((r, i) => ({
+      id: `${r.name}-${i}`,
+      name: r.name,
+      value: r.value,
+      color: r.color,
+    }));
+  }
+
+  const total = pieData.reduce((a, r) => a + r.value, 0);
+
+  return (
+    <div
+      style={{
+        display: "flex",
+        flexDirection: "row",
+        alignItems: "flex-start",
+        gap: 14,
+        background: "#151b26",
+        border: "1px solid #2a3548",
+        borderRadius: 10,
+        padding: "10px 12px",
+        boxShadow: "0 8px 24px rgba(0,0,0,0.35)",
+      }}
+    >
+      <div
+        style={{
+          flexShrink: 0,
+          width: 168,
+          minWidth: 140,
+          height: "auto",
+        }}
+      >
+        <div
+          style={{
+            fontSize: 11,
+            color: "#8b9bb8",
+            fontWeight: 600,
+            marginBottom: 6,
+          }}
+        >
+          {t(pieTitleKey)}
+        </div>
+        {total > 0 ? (
+          <div style={{ width: 128, height: 118 }}>
+            <ResponsiveContainer width="100%" height="100%">
+              <PieChart>
+                <Pie
+                  data={pieData}
+                  dataKey="value"
+                  nameKey="name"
+                  cx="50%"
+                  cy="50%"
+                  innerRadius={30}
+                  outerRadius={52}
+                  paddingAngle={1}
+                  stroke="#0d1117"
+                  strokeWidth={1}
+                  isAnimationActive={false}
+                >
+                  {pieData.map((entry) => (
+                    <Cell key={entry.id} fill={entry.color} />
+                  ))}
+                </Pie>
+              </PieChart>
+            </ResponsiveContainer>
+          </div>
+        ) : (
+          <div
+            style={{
+              height: 118,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              fontSize: 11,
+              color: "#7a8aa3",
+              textAlign: "center",
+              padding: "0 4px",
+            }}
+          >
+            {t("trends.noPositive")}
+          </div>
+        )}
+        {total > 0 && (
+          <div style={{ marginTop: 8 }}>
+            <div
+              style={{
+                fontSize: 10,
+                color: "#6b7a94",
+                marginBottom: 6,
+              }}
+            >
+              {t("trends.pieLegend")}
+            </div>
+            <ul
+              style={{
+                listStyle: "none",
+                margin: 0,
+                padding: 0,
+                maxHeight: 140,
+                overflowY: "auto",
+              }}
+            >
+              {pieData.map((entry) => (
+                <li
+                  key={entry.id}
+                  style={{
+                    display: "flex",
+                    alignItems: "flex-start",
+                    gap: 8,
+                    fontSize: 11,
+                    marginBottom: 5,
+                    color: "#d4dce8",
+                    lineHeight: 1.35,
+                  }}
+                >
+                  <span
+                    style={{
+                      width: 9,
+                      height: 9,
+                      borderRadius: 2,
+                      background: entry.color,
+                      flexShrink: 0,
+                      marginTop: 3,
+                    }}
+                  />
+                  <span style={{ flex: 1, minWidth: 0 }}>
+                    {entry.name}
+                    <span
+                      style={{
+                        color: "#6b7a94",
+                        fontVariantNumeric: "tabular-nums",
+                        marginLeft: 6,
+                      }}
+                    >
+                      {Math.round((100 * entry.value) / total)}% ·{" "}
+                      {entry.value.toLocaleString()}
+                    </span>
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+      </div>
+      <div style={{ minWidth: 0, flex: 1 }}>
+        <div
+          style={{
+            color: "#c5d0e6",
+            fontWeight: 600,
+            marginBottom: 8,
+            fontSize: 13,
+          }}
+        >
+          {periodLabel ?? "—"}
+        </div>
+        <ul
+          style={{
+            listStyle: "none",
+            margin: 0,
+            padding: 0,
+            maxHeight: 220,
+            overflowY: "auto",
+          }}
+        >
+          {rows.map((r, i) => (
+            <li
+              key={`${r.name}-${i}`}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 8,
+                fontSize: 12,
+                marginBottom: 4,
+                color: "#d4dce8",
+              }}
+            >
+              <span
+                style={{
+                  width: 8,
+                  height: 8,
+                  borderRadius: 2,
+                  background: r.color,
+                  flexShrink: 0,
+                }}
+              />
+              <span style={{ flex: 1, minWidth: 0 }}>{r.name}</span>
+              <span style={{ fontVariantNumeric: "tabular-nums" }}>
+                {r.value.toLocaleString()}
+              </span>
+            </li>
+          ))}
+        </ul>
+      </div>
+    </div>
+  );
+}
 
 async function loadData(): Promise<CrimePayload> {
   const r = await fetch("/crime-data.json", { cache: "no-store" });
@@ -352,6 +731,27 @@ export default function Dashboard() {
     map,
     metricMode,
   ]);
+
+  const trendYDomain = useMemo((): [number, number] => {
+    if (!trendRows.length) return [0, 1];
+    let keys: string[] = [];
+    if (dataSource === "community") keys = [...commSuburbs];
+    else if (dataSource === "traffic" || dataSource === "familyViolence")
+      keys = ["actWide"];
+    else if (dataSource === "offences") keys = [...selectedDistricts];
+    else return [0, 1];
+    if (!keys.length) return [0, 1];
+    let hi = Number.NEGATIVE_INFINITY;
+    for (const row of trendRows) {
+      for (const k of keys) {
+        const v = Number(row[k]);
+        if (Number.isFinite(v)) hi = Math.max(hi, v);
+      }
+    }
+    if (!Number.isFinite(hi) || hi <= 0) return [0, 1];
+    const pad = hi * 0.08 || 1;
+    return [0, hi + pad];
+  }, [trendRows, dataSource, commSuburbs, selectedDistricts]);
 
   const compareDistrictRows = useMemo(() => {
     if (!data || !comparePeriod) return [];
@@ -1209,13 +1609,37 @@ export default function Dashboard() {
                     tick={{ fill: "#7a8aa3", fontSize: 11 }}
                     interval={xInterval}
                   />
-                  <YAxis tick={{ fill: "#7a8aa3", fontSize: 11 }} />
+                  <YAxis
+                    domain={[0, "auto"]}
+                    tick={{ fill: "#7a8aa3", fontSize: 11 }}
+                  />
                   <Tooltip
-                    contentStyle={{
-                      background: "#151b26",
-                      border: "1px solid #2a3548",
+                    cursor={{
+                      stroke: "#8892a8",
+                      strokeWidth: 1,
+                      strokeDasharray: "4 4",
                     }}
-                    labelStyle={{ color: "#c5d0e6" }}
+                    wrapperStyle={{ zIndex: 20 }}
+                    content={(tipProps) => (
+                      <TrendsLineTooltipContent
+                        {...tipProps}
+                        t={t}
+                        tMetric={tMetric}
+                        dataSource={dataSource}
+                        communityPie={
+                          dataSource === "community" && data.communityQuarterly
+                            ? {
+                                cq: data.communityQuarterly,
+                                district: commDistrict,
+                                selectedSuburbs: commSuburbs,
+                                categoryKeys: commCategories,
+                              }
+                            : undefined
+                        }
+                        palette={PALETTE}
+                        trendYDomain={trendYDomain}
+                      />
+                    )}
                   />
                   <Legend />
                   {dataSource === "community" ? (

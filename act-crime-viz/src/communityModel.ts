@@ -45,6 +45,43 @@ export function communityValueAtPeriodIndex(
   return periodIndex < q.length ? q[periodIndex] : 0;
 }
 
+/** Each selected category’s value for one suburb at one quarter (hovered line). */
+export function communityCategoryBreakdownForSuburbAtPeriodIndex(
+  cq: CommunityQuarterly,
+  district: string,
+  suburb: string,
+  categoryKeys: readonly string[],
+  periodIndex: number,
+): { category: string; value: number }[] {
+  if (periodIndex < 0 || !suburb || !categoryKeys.length) return [];
+  const cats = communityCategories(cq, district);
+  return categoryKeys.map((key) => {
+    const cat = cats.find((c) => c.category === key);
+    return {
+      category: key,
+      value: communityValueAtPeriodIndex(cat, suburb, periodIndex),
+    };
+  });
+}
+
+/** Per-category totals summed over the given suburbs at one quarter index. */
+export function communityCategoryTotalsAtPeriodIndex(
+  cq: CommunityQuarterly,
+  district: string,
+  suburbs: readonly string[],
+  periodIndex: number,
+): { category: string; value: number }[] {
+  if (periodIndex < 0) return [];
+  const cats = communityCategories(cq, district);
+  return cats.map((c) => ({
+    category: c.category,
+    value: suburbs.reduce(
+      (acc, sub) => acc + communityValueAtPeriodIndex(c, sub, periodIndex),
+      0,
+    ),
+  }));
+}
+
 /** Sum values for the same suburb across multiple offence / indicator categories. */
 export function communitySumValueAtPeriodIndex(
   cq: CommunityQuarterly,
