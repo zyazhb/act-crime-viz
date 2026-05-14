@@ -36,6 +36,30 @@ export type FamilyViolenceBlock = {
   series: OffenceSeries;
 };
 
+export type CommunitySuburbRow = {
+  name: string;
+  q: number[];
+};
+
+export type CommunityCategory = {
+  category: string;
+  suburbs: CommunitySuburbRow[];
+};
+
+export type CommunityDistrict = {
+  district: string;
+  sourceSheet: string;
+  categories: CommunityCategory[];
+};
+
+export type CommunityQuarterly = {
+  sourceFile: string;
+  granularity: "quarter";
+  promisAsAt: string | null;
+  periodsChronological: string[];
+  districts: CommunityDistrict[];
+};
+
 export type CrimePayload = {
   sourceFile: string;
   sheets: SheetMeta[];
@@ -45,6 +69,7 @@ export type CrimePayload = {
   traffic: TrafficBlock;
   familyViolence: FamilyViolenceBlock;
   violenceOffenceKeys: string[];
+  communityQuarterly?: CommunityQuarterly | null;
 };
 
 export type MetricMode =
@@ -54,4 +79,8 @@ export type MetricMode =
   | { kind: "family"; metric: string }
   | { kind: "traffic"; metric: string };
 
-export type DataSourceId = "offences" | "traffic" | "familyViolence";
+export type DataSourceId =
+  | "offences"
+  | "traffic"
+  | "familyViolence"
+  | "community";

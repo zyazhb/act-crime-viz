@@ -13,6 +13,13 @@ import {
   YAxis,
 } from "recharts";
 import {
+  communityCategories,
+  communityDistrictKeys,
+  communitySuburbNames,
+  communityValueAtPeriodIndex,
+  sliceCommunityPeriods,
+} from "./communityModel";
+import {
   allOffenceLabels,
   familyMetricLabels,
   familyMetricValue,
@@ -40,11 +47,25 @@ const PALETTE = [
 
 type TabId = "overview" | "trends" | "compare";
 
-function loadData(): Promise<CrimePayload> {
-  return fetch("/crime-data.json").then((r) => {
-    if (!r.ok) throw new Error(String(r.status));
-    return r.json() as Promise<CrimePayload>;
-  });
+async function loadData(): Promise<CrimePayload> {
+  const r = await fetch("/crime-data.json", { cache: "no-store" });
+  if (!r.ok) throw new Error(String(r.status));
+  const d = (await r.json()) as CrimePayload;
+  let community = d.communityQuarterly ?? null;
+  if (!community) {
+    try {
+      const cr = await fetch("/community-data.json", { cache: "no-store" });
+      if (cr.ok) {
+        const extra = (await cr.json()) as {
+          communityQuarterly?: CrimePayload["communityQuarterly"];
+        };
+        if (extra.communityQuarterly) community = extra.communityQuarterly;
+      }
+    } catch {
+      /* optional sidecar */
+    }
+  }
+  return { ...d, communityQuarterly: community };
 }
 
 function catalogKindPath(kind: string): string {
@@ -75,20 +96,32 @@ export default function Dashboard() {
   const [familyPick, setFamilyPick] = useState("");
   const [trafficPick, setTrafficPick] = useState("");
   const [comparePeriod, setComparePeriod] = useState("");
+  const [commDistrict, setCommDistrict] = useState("");
+  const [commCategory, setCommCategory] = useState("");
+  const [commSuburbs, setCommSuburbs] = useState<string[]>([]);
 
   useEffect(() => {
     loadData()
       .then((d) => {
-        setData(d);
-        setSelectedDistricts(d.offenceTables.map((x) => x.district));
-        const ch = d.periodsChronological;
+        const full: CrimePayload = {
+          ...d,
+          communityQuarterly: d.communityQuarterly ?? null,
+        };
+        setData(full);
+        setSelectedDistricts(full.offenceTables.map((x) => x.district));
+        const ch = full.periodsChronological;
         setPeriodFrom(ch[0] ?? "");
         setPeriodTo(ch[ch.length - 1] ?? "");
-        const act = d.offenceTables.find((x) => x.district === "ACT");
+        const act = full.offenceTables.find((x) => x.district === "ACT");
         const labels = act ? allOffenceLabels(act) : [];
         setOffencePick(labels[0] ?? "");
-        setFamilyPick(familyMetricLabels(d)[0] ?? "");
-        setTrafficPick(trafficMetricLabels(d)[0] ?? "");
+        setFamilyPick(familyMetricLabels(full)[0] ?? "");
+        setTrafficPick(trafficMetricLabels(full)[0] ?? "");
+        if (full.communityQuarterly?.districts?.length) {
+          setCommDistrict(full.communityQuarterly.districts[0].district);
+          setCommCategory("");
+          setCommSuburbs([]);
+        }
       })
       .catch((e: unknown) =>
         setErr(e instanceof Error ? e.message : String(e)),
@@ -123,8 +156,15 @@ export default function Dashboard() {
 
   const periodsInRange = useMemo(() => {
     if (!data || !periodFrom || !periodTo) return [];
+    if (dataSource === "community" && data.communityQuarterly) {
+      return sliceCommunityPeriods(
+        data.communityQuarterly.periodsChronological,
+        periodFrom,
+        periodTo,
+      );
+    }
     return slicePeriods(data.periodsChronological, periodFrom, periodTo);
-  }, [data, periodFrom, periodTo]);
+  }, [data, dataSource, periodFrom, periodTo]);
 
   useEffect(() => {
     if (!periodsInRange.length) return;
@@ -133,7 +173,71 @@ export default function Dashboard() {
     }
   }, [periodsInRange, comparePeriod]);
 
+  useEffect(() => {
+    if (!data) return;
+    if (
+      dataSource === "community" &&
+      data.communityQuarterly?.periodsChronological.length
+    ) {
+      const q = data.communityQuarterly.periodsChronological;
+      const q0 = q[0] ?? "";
+      const q1 = q[q.length - 1] ?? "";
+      setPeriodFrom((f) => (q.includes(f) ? f : q0));
+      setPeriodTo((to) => (q.includes(to) ? to : q1));
+    } else if (dataSource !== "community") {
+      const m = data.periodsChronological;
+      const m0 = m[0] ?? "";
+      const m1 = m[m.length - 1] ?? "";
+      setPeriodFrom((f) => (m.includes(f) ? f : m0));
+      setPeriodTo((to) => (m.includes(to) ? to : m1));
+    }
+  }, [dataSource, data]);
+
+  useEffect(() => {
+    if (!data?.communityQuarterly || !commDistrict) return;
+    const cats = communityCategories(data.communityQuarterly, commDistrict);
+    const first = cats[0];
+    if (!first) return;
+    const valid = commCategory
+      ? cats.find((c) => c.category === commCategory)
+      : undefined;
+    const cat = valid ?? first;
+    if (cat.category !== commCategory) {
+      setCommCategory(cat.category);
+    }
+    const names = communitySuburbNames(cat).filter((n) => n !== "Total");
+    setCommSuburbs(names.slice(0, 6));
+  }, [data, commDistrict, commCategory]);
+
+  const periodOptions = useMemo(() => {
+    if (!data) return [];
+    if (dataSource === "community" && data.communityQuarterly)
+      return data.communityQuarterly.periodsChronological;
+    return data.periodsChronological;
+  }, [data, dataSource]);
+
+  const commDistrictOptions = useMemo(
+    () =>
+      data?.communityQuarterly
+        ? communityDistrictKeys(data.communityQuarterly)
+        : [],
+    [data],
+  );
+
+  const commCategoryOptions = useMemo(
+    () =>
+      data?.communityQuarterly && commDistrict
+        ? communityCategories(data.communityQuarterly, commDistrict)
+        : [],
+    [data, commDistrict],
+  );
+
   const metricDescription = useMemo(() => {
+    if (dataSource === "community" && data?.communityQuarterly)
+      return t("metricDesc.community", {
+        district: tDistrict(commDistrict),
+        category: tMetric(commCategory),
+      });
     if (metricMode.kind === "traffic")
       return t("metricDesc.traffic", { name: tMetric(metricMode.metric) });
     if (metricMode.kind === "family")
@@ -141,10 +245,34 @@ export default function Dashboard() {
     if (metricMode.kind === "total") return t("metricDesc.total");
     if (metricMode.kind === "violence_sum") return t("metricDesc.violence");
     return t("metricDesc.offence", { name: tMetric(metricMode.offence) });
-  }, [metricMode, t, tMetric]);
+  }, [
+    data,
+    dataSource,
+    commDistrict,
+    commCategory,
+    metricMode,
+    t,
+    tMetric,
+    tDistrict,
+  ]);
 
   const trendRows = useMemo(() => {
     if (!data) return [];
+    if (dataSource === "community" && data.communityQuarterly) {
+      const cq = data.communityQuarterly;
+      const cat = communityCategories(cq, commDistrict).find(
+        (c) => c.category === commCategory,
+      );
+      const idxFor = (p: string) => cq.periodsChronological.indexOf(p);
+      return periodsInRange.map((period) => {
+        const ix = idxFor(period);
+        const row: Record<string, string | number> = { period };
+        for (const s of commSuburbs) {
+          row[s] = communityValueAtPeriodIndex(cat, s, ix);
+        }
+        return row;
+      });
+    }
     return periodsInRange.map((period) => {
       const row: Record<string, string | number> = { period };
       if (metricMode.kind === "traffic") {
@@ -161,7 +289,17 @@ export default function Dashboard() {
       }
       return row;
     });
-  }, [data, periodsInRange, selectedDistricts, map, metricMode]);
+  }, [
+    data,
+    dataSource,
+    periodsInRange,
+    commDistrict,
+    commCategory,
+    commSuburbs,
+    selectedDistricts,
+    map,
+    metricMode,
+  ]);
 
   const compareDistrictRows = useMemo(() => {
     if (!data || !comparePeriod) return [];
@@ -177,24 +315,65 @@ export default function Dashboard() {
     }));
   }, [data, comparePeriod, selectedDistricts, map, metricMode, tDistrict]);
 
-  const compareMetricRows = useMemo(() => {
+  const compareBarRows = useMemo(() => {
     if (!data || !comparePeriod) return [];
-    const series =
-      dataSource === "traffic"
-        ? data.traffic.series
-        : data.familyViolence.series;
-    return Object.keys(series)
-      .sort()
-      .map((k) => ({
-        id: k,
-        label: tMetric(k),
-        value: series[k]?.[comparePeriod] ?? 0,
+    if (dataSource === "traffic") {
+      return Object.keys(data.traffic.series)
+        .sort()
+        .map((k) => ({
+          id: k,
+          label: tMetric(k),
+          value: data.traffic.series[k]?.[comparePeriod] ?? 0,
+        }));
+    }
+    if (dataSource === "familyViolence") {
+      return Object.keys(data.familyViolence.series)
+        .sort()
+        .map((k) => ({
+          id: k,
+          label: tMetric(k),
+          value: data.familyViolence.series[k]?.[comparePeriod] ?? 0,
+        }));
+    }
+    if (dataSource === "community" && data.communityQuarterly) {
+      const cq = data.communityQuarterly;
+      const cat = communityCategories(cq, commDistrict).find(
+        (c) => c.category === commCategory,
+      );
+      const ix = cq.periodsChronological.indexOf(comparePeriod);
+      return [...commSuburbs].sort().map((sub) => ({
+        id: sub,
+        label: sub,
+        value: communityValueAtPeriodIndex(cat, sub, ix),
       }));
-  }, [data, comparePeriod, dataSource, tMetric]);
+    }
+    return [];
+  }, [
+    data,
+    comparePeriod,
+    dataSource,
+    tMetric,
+    commDistrict,
+    commCategory,
+    commSuburbs,
+  ]);
 
   const overviewRows = useMemo(() => {
     if (!data || !periodsInRange.length) return [];
     const latest = periodsInRange[periodsInRange.length - 1];
+    if (dataSource === "community" && data.communityQuarterly) {
+      const cq = data.communityQuarterly;
+      const cat = communityCategories(cq, commDistrict).find(
+        (c) => c.category === commCategory,
+      );
+      const ix = cq.periodsChronological.indexOf(latest);
+      return [...commSuburbs].sort().map((s) => ({
+        id: s,
+        label: s,
+        value: communityValueAtPeriodIndex(cat, s, ix),
+        period: latest,
+      }));
+    }
     if (dataSource === "traffic") {
       return Object.keys(data.traffic.series)
         .sort()
@@ -235,6 +414,9 @@ export default function Dashboard() {
     dataSource,
     tMetric,
     tDistrict,
+    commDistrict,
+    commCategory,
+    commSuburbs,
   ]);
 
   const toggleDistrict = (d: string) => {
@@ -248,6 +430,12 @@ export default function Dashboard() {
     if (preset === "all") setSelectedDistricts(districts);
     else if (preset === "act") setSelectedDistricts(["ACT"]);
     else setSelectedDistricts(districts.filter((x) => x !== "ACT"));
+  };
+
+  const toggleCommSuburb = (s: string) => {
+    setCommSuburbs((prev) =>
+      prev.includes(s) ? prev.filter((x) => x !== s) : [...prev, s],
+    );
   };
 
   const xInterval = Math.max(0, Math.floor(periodsInRange.length / 12) - 1);
@@ -269,12 +457,24 @@ export default function Dashboard() {
     );
   }
 
-  const ch = data.periodsChronological;
-  const isMetricCompare =
+  const isClusterBar =
     tab === "compare" &&
-    (dataSource === "traffic" || dataSource === "familyViolence");
+    (dataSource === "traffic" ||
+      dataSource === "familyViolence" ||
+      dataSource === "community");
+  const clusterBarTall = isClusterBar && dataSource === "community";
   const firstColLabel =
-    dataSource === "offences" ? t("table.region") : t("filter.metricKind");
+    dataSource === "offences"
+      ? t("table.region")
+      : dataSource === "community"
+        ? t("table.suburb")
+        : t("filter.metricKind");
+  const compareChartTitle =
+    dataSource === "offences"
+      ? t("compare.districtTitle")
+      : dataSource === "community"
+        ? t("compare.suburbTitle")
+        : t("compare.metricTitle");
 
   return (
     <div style={{ display: "flex", minHeight: "100vh" }}>
@@ -396,6 +596,20 @@ export default function Dashboard() {
           <p style={{ margin: 0, color: "#8b9bb8", fontSize: "0.9rem" }}>
             {metricDescription}
           </p>
+          {dataSource === "community" && data.communityQuarterly && (
+            <p
+              style={{
+                margin: "0.5rem 0 0",
+                color: "#5c6a82",
+                fontSize: "0.78rem",
+              }}
+            >
+              {data.communityQuarterly.sourceFile}
+              {data.communityQuarterly.promisAsAt
+                ? ` · ${data.communityQuarterly.promisAsAt}`
+                : ""}
+            </p>
+          )}
         </header>
 
         <section
@@ -423,6 +637,9 @@ export default function Dashboard() {
               <option value="offences">{t("filter.sourceOffences")}</option>
               <option value="traffic">{t("filter.sourceTraffic")}</option>
               <option value="familyViolence">{t("filter.sourceFamily")}</option>
+              {data.communityQuarterly && (
+                <option value="community">{t("filter.sourceCommunity")}</option>
+              )}
             </select>
           </div>
 
@@ -510,6 +727,94 @@ export default function Dashboard() {
             </div>
           )}
 
+          {dataSource === "community" && data.communityQuarterly && (
+            <>
+              <div>
+                <label htmlFor="comm-district" style={lbl}>
+                  {t("filter.commPolicingDistrict")}
+                </label>
+                <select
+                  id="comm-district"
+                  value={commDistrict}
+                  onChange={(e) => setCommDistrict(e.target.value)}
+                  style={ctl}
+                >
+                  {commDistrictOptions.map((d) => (
+                    <option key={d} value={d}>
+                      {tDistrict(d)}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label htmlFor="comm-cat" style={lbl}>
+                  {t("filter.commCategory")}
+                </label>
+                <select
+                  id="comm-cat"
+                  value={commCategory}
+                  onChange={(e) => setCommCategory(e.target.value)}
+                  style={ctl}
+                >
+                  {commCategoryOptions.map((c) => (
+                    <option key={c.category} value={c.category}>
+                      {tMetric(c.category)}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div style={{ gridColumn: "1 / -1" }}>
+                <fieldset
+                  style={{
+                    margin: 0,
+                    padding: 0,
+                    border: "none",
+                  }}
+                >
+                  <legend style={{ ...lbl, padding: 0 }}>
+                    {t("filter.commSuburbsLegend")}
+                  </legend>
+                  <div
+                    style={{
+                      display: "flex",
+                      flexWrap: "wrap",
+                      gap: "0.35rem",
+                      marginTop: 6,
+                      maxHeight: 220,
+                      overflowY: "auto",
+                    }}
+                  >
+                    {communitySuburbNames(
+                      commCategoryOptions.find(
+                        (x) => x.category === commCategory,
+                      ),
+                    )
+                      .filter((n) => n !== "Total")
+                      .map((s) => (
+                        <button
+                          key={s}
+                          type="button"
+                          onClick={() => toggleCommSuburb(s)}
+                          style={{
+                            ...chip,
+                            opacity: commSuburbs.includes(s) ? 1 : 0.42,
+                            borderColor: commSuburbs.includes(s)
+                              ? "#5b8def"
+                              : "#2a3548",
+                            background: commSuburbs.includes(s)
+                              ? "#1a2438"
+                              : "#151b26",
+                          }}
+                        >
+                          {s}
+                        </button>
+                      ))}
+                  </div>
+                </fieldset>
+              </div>
+            </>
+          )}
+
           <div>
             <label htmlFor="period-from" style={lbl}>
               {t("filter.periodFrom")}
@@ -520,7 +825,7 @@ export default function Dashboard() {
               onChange={(e) => setPeriodFrom(e.target.value)}
               style={ctl}
             >
-              {ch.map((p) => (
+              {periodOptions.map((p) => (
                 <option key={p} value={p}>
                   {p}
                 </option>
@@ -537,7 +842,7 @@ export default function Dashboard() {
               onChange={(e) => setPeriodTo(e.target.value)}
               style={ctl}
             >
-              {ch.map((p) => (
+              {periodOptions.map((p) => (
                 <option key={p} value={p}>
                   {p}
                 </option>
@@ -641,6 +946,18 @@ export default function Dashboard() {
               }}
             >
               {t("traffic.note")}
+            </p>
+          )}
+          {dataSource === "community" && (
+            <p
+              style={{
+                gridColumn: "1 / -1",
+                margin: 0,
+                fontSize: "0.85rem",
+                color: "#7a8aa3",
+              }}
+            >
+              {t("community.note")}
             </p>
           )}
 
@@ -775,8 +1092,20 @@ export default function Dashboard() {
                     labelStyle={{ color: "#c5d0e6" }}
                   />
                   <Legend />
-                  {metricMode.kind === "traffic" ||
-                  metricMode.kind === "family" ? (
+                  {dataSource === "community" ? (
+                    commSuburbs.map((s, i) => (
+                      <Line
+                        key={s}
+                        type="monotone"
+                        dataKey={s}
+                        name={s}
+                        stroke={PALETTE[i % PALETTE.length]}
+                        dot={false}
+                        strokeWidth={2}
+                      />
+                    ))
+                  ) : metricMode.kind === "traffic" ||
+                    metricMode.kind === "family" ? (
                     <Line
                       type="monotone"
                       dataKey={actWideKey}
@@ -806,31 +1135,25 @@ export default function Dashboard() {
 
         {tab === "compare" && (
           <section>
-            <h2 style={h2}>
-              {isMetricCompare
-                ? t("compare.metricTitle")
-                : t("compare.districtTitle")}
-            </h2>
+            <h2 style={h2}>{compareChartTitle}</h2>
             <div style={{ height: 420, width: "100%" }}>
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart
-                  data={
-                    isMetricCompare ? compareMetricRows : compareDistrictRows
-                  }
+                  data={isClusterBar ? compareBarRows : compareDistrictRows}
                   margin={{
                     top: 8,
                     right: 16,
                     left: 8,
-                    bottom: isMetricCompare ? 120 : 64,
+                    bottom: clusterBarTall ? 140 : isClusterBar ? 120 : 64,
                   }}
                 >
                   <CartesianGrid strokeDasharray="3 3" stroke="#1e2736" />
                   <XAxis
                     dataKey="label"
                     tick={{ fill: "#7a8aa3", fontSize: 10 }}
-                    angle={isMetricCompare ? -35 : -28}
+                    angle={clusterBarTall ? -40 : isClusterBar ? -35 : -28}
                     textAnchor="end"
-                    height={isMetricCompare ? 130 : 70}
+                    height={clusterBarTall ? 150 : isClusterBar ? 130 : 70}
                   />
                   <YAxis tick={{ fill: "#7a8aa3", fontSize: 11 }} />
                   <Tooltip
@@ -857,6 +1180,11 @@ export default function Dashboard() {
             {dataSource === "traffic" && (
               <p style={{ color: "#7a8aa3", fontSize: "0.85rem" }}>
                 {t("traffic.compareNote")}
+              </p>
+            )}
+            {dataSource === "community" && (
+              <p style={{ color: "#7a8aa3", fontSize: "0.85rem" }}>
+                {t("community.compareNote")}
               </p>
             )}
           </section>

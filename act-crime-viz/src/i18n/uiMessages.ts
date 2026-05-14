@@ -23,6 +23,8 @@ const en = {
     offence: "Single category: {{name}}",
     family: "Family violence (ACT-wide): {{name}}",
     traffic: "Traffic & transport (ACT-wide): {{name}}",
+    community:
+      "Suburb-level (quarterly): {{district}} · {{category}}. Cannot be merged with monthly MARYY series.",
   },
   loading: "Loading statistics…",
   errors: { loadFailed: "Failed to load data ({{status}})" },
@@ -31,6 +33,11 @@ const en = {
     sourceOffences: "Offence statistics (Tables 1–10, by district)",
     sourceTraffic: "Traffic & transport (Table 11, ACT)",
     sourceFamily: "Family violence (Table 12, ACT)",
+    sourceCommunity:
+      "Suburb statistics (quarterly workbook; timeline partial vs monthly)",
+    commPolicingDistrict: "Policing district (sheet)",
+    commCategory: "Offence / indicator category",
+    commSuburbsLegend: "Suburbs (multi-select, excludes Total row)",
     metricKind: "Metric",
     metricTotal: "All offences total",
     metricViolence: "Violence bundle",
@@ -55,6 +62,10 @@ const en = {
     note: "Traffic statistics are ACT-wide (Table 11).",
     compareNote: "Bars show each traffic indicator for the selected month.",
   },
+  community: {
+    note: "Quarterly suburb data covers roughly 2014 Q1–2025 Q2 and does not align with monthly offence tables.",
+    compareNote: "Bars show each selected suburb for the chosen quarter.",
+  },
   overview: {
     snapshotTitle: "Snapshot at end of selected range",
     catalogTitle: "Workbook structure (3 sheets, 12 tables)",
@@ -68,10 +79,12 @@ const en = {
     kind: "Type",
     metrics: "Metrics",
     title: "Title (source)",
+    suburb: "Suburb / indicator",
   },
   compare: {
     districtTitle: "District comparison (selected month)",
     metricTitle: "Metric comparison (selected month)",
+    suburbTitle: "Suburb comparison (selected quarter)",
   },
   catalog: {
     kindOffence: "Offences",
@@ -101,6 +114,8 @@ const zh = {
     offence: "单项罪行：{{name}}",
     family: "家庭暴力（全 ACT）：{{name}}",
     traffic: "交通与运输（全 ACT）：{{name}}",
+    community:
+      "社区（按季度）：{{district}} · {{category}}。与月度 MAR/FEB 序列时间轴不一致，无法拼成完整原序列。",
   },
   loading: "正在加载统计数据…",
   errors: { loadFailed: "加载数据失败（{{status}}）" },
@@ -109,6 +124,10 @@ const zh = {
     sourceOffences: "罪行统计（表 1–10，按辖区）",
     sourceTraffic: "交通与运输（表 11，全 ACT）",
     sourceFamily: "家庭暴力（表 12，全 ACT）",
+    sourceCommunity: "社区统计（季度工作簿；时间范围与月度表不对齐）",
+    commPolicingDistrict: "警务辖区（工作表）",
+    commCategory: "罪行 / 指标类别",
+    commSuburbsLegend: "社区（多选，不含 Total 汇总行）",
     metricKind: "指标",
     metricTotal: "全部罪行合计",
     metricViolence: "暴力罪行汇总",
@@ -133,6 +152,10 @@ const zh = {
     note: "交通统计为全 ACT 口径（表 11）。",
     compareNote: "柱状图为所选月份下各交通指标对比。",
   },
+  community: {
+    note: "社区季度数据约覆盖 2014 Q1 至 2025 Q2，与月度罪行表颗粒度、起止时间均不同，不能补全全部原序列。",
+    compareNote: "柱状图为所选季度下各社区的对比（不含 Total）。",
+  },
   overview: {
     snapshotTitle: "当前区间末尾月快照",
     catalogTitle: "工作簿结构（3 个工作表，12 个表格）",
@@ -146,10 +169,12 @@ const zh = {
     kind: "类型",
     metrics: "指标数",
     title: "标题（原文）",
+    suburb: "社区 / 指标",
   },
   compare: {
     districtTitle: "分区对比（选定月份）",
     metricTitle: "指标对比（选定月份）",
+    suburbTitle: "社区对比（选定季度）",
   },
   catalog: {
     kindOffence: "罪行",

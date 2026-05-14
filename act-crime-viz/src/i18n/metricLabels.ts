@@ -55,10 +55,32 @@ const FAMILY_ZH: Record<string, string> = {
     "家庭暴力相关被拘捕人数",
 };
 
+const COMMUNITY_CAT_ZH: Record<string, string> = {
+  "Assault - FV": "袭击（家庭暴力相关）",
+  "Assault - Non-FV": "袭击（非家庭暴力相关）",
+  "Burglary dwellings": "入室盗窃（住宅）",
+  "Burglary other": "入室盗窃（其他）",
+  "Burglary shops": "入室盗窃（商铺）",
+  CINs: "刑事侵权通知（CIN）",
+  "Motor vehicle theft": "机动车盗窃",
+  "Other offences": "其他罪行",
+  "Other offences against a person": "其他针对人身罪行",
+  "Property damage": "财产损毁",
+  "Robbery - armed": "武装抢劫",
+  "Robbery - other": "其他抢劫",
+  "Sexual Assault": "性侵犯",
+  "TINs Mobile Use": "交通违章：使用手机",
+  "TINs Other": "交通违章：其他",
+  "TINs Seatbelts": "交通违章：安全带",
+  "TINs Speeding": "交通违章：超速",
+  "Theft (excluding Motor Vehicles)": "盗窃（不含机动车）",
+};
+
 const METRIC_ZH: Record<string, string> = {
   ...OFFENCE_ZH,
   ...TRAFFIC_ZH,
   ...FAMILY_ZH,
+  ...COMMUNITY_CAT_ZH,
 };
 
 export function metricLabel(locale: Locale, key: string): string {

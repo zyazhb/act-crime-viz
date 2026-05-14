@@ -187,6 +187,175 @@ def table_number_from_title(title: str | None) -> int | None:
     return int(m.group(1)) if m else None
 
 
+# --- Quarterly suburb (community) workbook (partial timeline vs monthly MARYY) ---
+
+COMMUNITY_SHEET_TO_DISTRICT: dict[str, str] = {
+    "Belconnen": "Belconnen",
+    "Gungahlin": "Gungahlin",
+    "Inner North": "Inner North",
+    "Inner South": "Inner South",
+    "Weston Creek": "Weston",
+    "Molonglo District": "Molonglo District",
+    "Woden": "Woden",
+    "Tuggeranong": "Tuggeranong",
+    "Other": "Other Areas",
+}
+
+QUARTER_HDR_RE = re.compile(r"^\d{4}\s+Q[1-4]\b", re.I)
+
+
+def _is_quarter_header_row(row: tuple) -> bool:
+    a = row[0] if row else None
+    b = row[1] if row and len(row) > 1 else None
+    if a is not None and str(a).strip():
+        return False
+    if not b:
+        return False
+    return bool(QUARTER_HDR_RE.match(str(b).strip()))
+
+
+def _offence_block_follows(rows: list[tuple], i: int) -> bool:
+    if i + 1 >= len(rows):
+        return False
+    return _is_quarter_header_row(rows[i + 1])
+
+
+def _parse_suburb_value_row(
+    row: tuple, num_periods: int
+) -> tuple[str | None, list[int]]:
+    v0 = row[0] if row else None
+    name = str(v0).strip() if v0 is not None else ""
+    if not name:
+        return None, []
+    vals: list[int] = []
+    for k in range(num_periods):
+        cell = row[k + 1] if k + 1 < len(row) else None
+        try:
+            vals.append(int(cell) if cell is not None else 0)
+        except (TypeError, ValueError):
+            vals.append(0)
+    return name, vals
+
+
+def _parse_one_community_block(
+    rows: list[tuple], start_i: int
+) -> tuple[dict | None, int]:
+    """start_i = offence title row; returns (block_dict, next_index)."""
+    n = len(rows)
+    if start_i + 1 >= n or not _is_quarter_header_row(rows[start_i + 1]):
+        return None, start_i + 1
+    category = str(rows[start_i][0]).strip()
+    hdr = rows[start_i + 1]
+    periods: list[str] = []
+    for cell in hdr[1:]:
+        if cell is None or (isinstance(cell, str) and not str(cell).strip()):
+            break
+        periods.append(str(cell).strip())
+    if not periods:
+        return None, start_i + 2
+    num_p = len(periods)
+    suburbs: list[dict] = []
+    j = start_i + 2
+    while j < n:
+        r = rows[j]
+        v0 = r[0] if r else None
+        v0s = str(v0).strip() if v0 is not None else ""
+        if not v0s:
+            j += 1
+            continue
+        if v0s != "Total" and j + 1 < n and _offence_block_follows(rows, j):
+            break
+        name, vals = _parse_suburb_value_row(r, num_p)
+        if not name:
+            j += 1
+            continue
+        if len(vals) != num_p:
+            while len(vals) < num_p:
+                vals.append(0)
+            vals = vals[:num_p]
+        suburbs.append({"name": name, "q": vals})
+        j += 1
+        if name == "Total":
+            break
+    return {"category": category, "suburbs": suburbs}, j
+
+
+def extract_community_quarterly(xlsx_path: Path) -> dict | None:
+    """Parse Website_Qtrly_*.xlsx suburb-by-quarter blocks per policing district sheet."""
+    if not xlsx_path.exists():
+        return None
+    wb = load_workbook(xlsx_path, read_only=True, data_only=True)
+    promis = None
+    districts_out: list[dict] = []
+
+    for sheet_name in wb.sheetnames:
+        district = COMMUNITY_SHEET_TO_DISTRICT.get(sheet_name)
+        if not district:
+            continue
+        ws = wb[sheet_name]
+        rows = [tuple(r) for r in ws.iter_rows(values_only=True)]
+        if promis is None and len(rows) > 1:
+            c0 = rows[1][0] if rows[1] else None
+            if isinstance(c0, str) and "PROMIS" in c0:
+                promis = c0.strip()
+        periods_ref: list[str] | None = None
+        blocks: list[dict] = []
+        i = 0
+        n = len(rows)
+        while i < n - 1:
+            a = rows[i][0] if rows[i] else None
+            if not isinstance(a, str):
+                i += 1
+                continue
+            title = a.strip()
+            if not title or title == "Total":
+                i += 1
+                continue
+            if "by Suburb" in title or title.startswith("PROMIS"):
+                i += 1
+                continue
+            if not _offence_block_follows(rows, i):
+                i += 1
+                continue
+            blk, nxt = _parse_one_community_block(rows, i)
+            if blk and blk.get("suburbs"):
+                if periods_ref is None:
+                    periods_ref = []
+                    h = rows[i + 1]
+                    for cell in h[1:]:
+                        if cell is None or (
+                            isinstance(cell, str) and not str(cell).strip()
+                        ):
+                            break
+                        periods_ref.append(str(cell).strip())
+                blocks.append(
+                    {
+                        "category": blk["category"],
+                        "suburbs": blk["suburbs"],
+                    }
+                )
+            i = max(nxt, i + 1)
+        if blocks and periods_ref:
+            districts_out.append(
+                {
+                    "district": district,
+                    "sourceSheet": sheet_name,
+                    "categories": blocks,
+                }
+            )
+
+    if not districts_out:
+        return None
+    periods_union = districts_out[0]["periodsChronological"]
+    return {
+        "sourceFile": xlsx_path.name,
+        "granularity": "quarter",
+        "promisAsAt": promis,
+        "periodsChronological": periods_union,
+        "districts": districts_out,
+    }
+
+
 def main() -> None:
     root = Path(__file__).resolve().parents[1]
     xlsx = root / "Website-Stats-Monthly-Mar26.xls.xlsx"
@@ -261,6 +430,9 @@ def main() -> None:
     for t in tables:
         t.pop("title", None)
 
+    community_xlsx = root / "Website_Qtrly_Jun25.xlsx"
+    community_quarterly = extract_community_quarterly(community_xlsx)
+
     payload = {
         "sourceFile": xlsx.name,
         "sheets": sheets_meta,
@@ -286,6 +458,7 @@ def main() -> None:
             "Robbery",
             "Offences against a person",
         ],
+        "communityQuarterly": community_quarterly,
     }
 
     out.parent.mkdir(parents=True, exist_ok=True)
