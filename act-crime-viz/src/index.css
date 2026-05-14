@@ -1,0 +1,34 @@
+:root {
+  font-family: "DM Sans", "PingFang SC", "Microsoft YaHei", system-ui,
+    sans-serif;
+  line-height: 1.5;
+  font-weight: 400;
+  color: #e8ecf4;
+  background-color: #0c1018;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+}
+
+#root {
+  min-height: 100vh;
+}
+
+a {
+  color: #7ab8ff;
+}
+
+button,
+select,
+input {
+  font: inherit;
+}
