@@ -529,20 +529,10 @@ export default function Dashboard() {
         : t("compare.metricTitle");
 
   return (
-    <div style={{ display: "flex", minHeight: "100vh" }}>
-      <aside
-        style={{
-          width: 230,
-          flexShrink: 0,
-          background: "#111722",
-          borderRight: "1px solid #1e2736",
-          padding: "1.25rem 0",
-          display: "flex",
-          flexDirection: "column",
-          gap: "0.25rem",
-        }}
-      >
+    <div className="dashboard-shell">
+      <aside className="dashboard-sidebar">
         <div
+          className="dashboard-sidebar-brand"
           style={{
             padding: "0 1.25rem 1rem",
             borderBottom: "1px solid #1e2736",
@@ -571,33 +561,36 @@ export default function Dashboard() {
             {t("brand.source")}：{data.sourceFile}
           </div>
         </div>
-        {(
-          [
-            ["overview", "nav.overview"],
-            ["trends", "nav.trends"],
-            ["compare", "nav.compare"],
-          ] as const
-        ).map(([id, labelKey]) => (
-          <button
-            key={id}
-            type="button"
-            onClick={() => setTab(id)}
-            style={{
-              margin: "0 0.75rem",
-              padding: "0.65rem 1rem",
-              textAlign: "left",
-              border: "none",
-              borderRadius: 8,
-              cursor: "pointer",
-              background: tab === id ? "#1c2840" : "transparent",
-              color: tab === id ? "#fff" : "#9aa8c2",
-              fontWeight: tab === id ? 600 : 400,
-            }}
-          >
-            {t(labelKey)}
-          </button>
-        ))}
+        <div className="dashboard-nav-tabs">
+          {(
+            [
+              ["overview", "nav.overview"],
+              ["trends", "nav.trends"],
+              ["compare", "nav.compare"],
+            ] as const
+          ).map(([id, labelKey]) => (
+            <button
+              key={id}
+              type="button"
+              className="dashboard-tab-btn"
+              onClick={() => setTab(id)}
+              style={{
+                padding: "0.65rem 1rem",
+                textAlign: "left",
+                border: "none",
+                borderRadius: 8,
+                cursor: "pointer",
+                background: tab === id ? "#1c2840" : "transparent",
+                color: tab === id ? "#fff" : "#9aa8c2",
+                fontWeight: tab === id ? 600 : 400,
+              }}
+            >
+              {t(labelKey)}
+            </button>
+          ))}
+        </div>
         <div
+          className="dashboard-sidebar-lang"
           style={{
             marginTop: "auto",
             padding: "1rem 1.25rem 0",
@@ -634,17 +627,9 @@ export default function Dashboard() {
         </div>
       </aside>
 
-      <main style={{ flex: 1, padding: "1.5rem 2rem", overflow: "auto" }}>
+      <main className="dashboard-main">
         <header style={{ marginBottom: "1.5rem" }}>
-          <h1
-            style={{
-              margin: "0 0 0.35rem",
-              fontSize: "1.5rem",
-              fontWeight: 700,
-            }}
-          >
-            {t("app.title")}
-          </h1>
+          <h1 className="dashboard-page-title">{t("app.title")}</h1>
           <p style={{ margin: 0, color: "#8b9bb8", fontSize: "0.9rem" }}>
             {metricDescription}
           </p>
@@ -665,9 +650,9 @@ export default function Dashboard() {
         </header>
 
         <section
+          className="dashboard-filters"
           style={{
             display: "grid",
-            gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))",
             gap: "1rem",
             marginBottom: "1.75rem",
             padding: "1.25rem",

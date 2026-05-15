@@ -36,7 +36,7 @@ export default function DashboardCompareChart({
   return (
     <section>
       <h2 style={h2}>{compareChartTitle}</h2>
-      <div style={{ height: 420, width: "100%" }}>
+      <div className="dashboard-chart-wrap">
         <ResponsiveContainer width="100%" height="100%">
           <BarChart
             data={isClusterBar ? compareBarRows : compareDistrictRows}

@@ -62,7 +62,7 @@ export default function DashboardTrendsChart({
   return (
     <section>
       <h2 style={h2}>{t("nav.trends")}</h2>
-      <div style={{ height: 420, width: "100%" }}>
+      <div className="dashboard-chart-wrap">
         <ResponsiveContainer width="100%" height="100%">
           <LineChart
             data={trendRows}
